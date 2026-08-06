@@ -36,7 +36,7 @@ import {
   Check
 } from 'lucide-react';
 
-const DEFAULT_CONTRACT = '0x4B9bBf0974d0d7F6942268d37fEF6ae420C4a497';
+const DEFAULT_CONTRACT = '0x3F397f0880F1b0A4a5B4202cD2cca49f545a0eca';
 const STUDIONET_RPC_URL = 'https://studio.genlayer.com/api';
 const EXPLORER_BASE_URL = 'https://explorer-studio.genlayer.com';
 
@@ -269,6 +269,39 @@ export default function App() {
     }
   };
 
+  // Fetch real-time RugCheck security data
+  const fetchSecurityData = async (address) => {
+    if (!address || !address.trim()) return null;
+    try {
+      const res = await fetch(`https://api.rugcheck.xyz/v1/tokens/${address}/report?_t=${Date.now()}`, {
+        cache: 'no-store'
+      });
+      const data = await res.json();
+      if (data && data.token) {
+        const mintDisabled = !data.token.mintAuthority;
+        const freezeDisabled = !data.token.freezeAuthority;
+        const risks = Array.isArray(data.risks) ? data.risks.map(r => r.name || r) : [];
+        let lpBurnedPct = 100;
+        if (Array.isArray(data.markets) && data.markets.length > 0) {
+          const m = data.markets[0];
+          if (m.lp && typeof m.lp.lpBurnedPct === 'number') {
+            lpBurnedPct = Math.round(m.lp.lpBurnedPct);
+          }
+        }
+        return {
+          mint_disabled: mintDisabled,
+          freeze_disabled: freezeDisabled,
+          lp_burned_pct: lpBurnedPct,
+          top10_holder_pct: Math.round(data.topHoldersPct || 20),
+          detected_risks: risks
+        };
+      }
+    } catch (e) {
+      console.warn('RugCheck security fetch error:', e);
+    }
+    return null;
+  };
+
   // Strictly load Real Audit Output for token directly from StudioNet RPC ONLY WHEN EXPLICITLY CALLED
   const loadAuditFromChain = async (address, reqId = '') => {
     if (!address || !address.trim()) return false;
@@ -365,6 +398,7 @@ export default function App() {
     try {
       await ensureGenLayerNetwork();
       const currentPair = await fetchDexData(tokenAddress);
+      const currentSecurity = await fetchSecurityData(tokenAddress);
       let txHash = null;
       const uniqueRequestId = `req_${(senderAddr || 'anon').slice(-6)}_${tokenAddress.slice(0, 6)}_${Date.now()}`;
 
@@ -377,7 +411,12 @@ export default function App() {
         fdv_usd: currentPair?.fdv || currentPair?.marketCap || 0,
         price_change_24h_pct: currentPair?.priceChange?.h24 || 0,
         txns_24h_buys: currentPair?.txns?.h24?.buys || 0,
-        txns_24h_sells: currentPair?.txns?.h24?.sells || 0
+        txns_24h_sells: currentPair?.txns?.h24?.sells || 0,
+        mint_disabled: currentSecurity ? currentSecurity.mint_disabled : true,
+        freeze_disabled: currentSecurity ? currentSecurity.freeze_disabled : true,
+        lp_burned_pct: currentSecurity ? currentSecurity.lp_burned_pct : 100,
+        top10_holder_pct: currentSecurity ? currentSecurity.top10_holder_pct : 20,
+        detected_risks: currentSecurity ? currentSecurity.detected_risks : []
       });
 
       if (typeof window.ethereum !== 'undefined' && senderAddr) {

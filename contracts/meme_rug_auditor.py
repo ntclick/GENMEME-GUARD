@@ -157,6 +157,7 @@ class MemeRugAuditor(gl.Contract):
         def leader_fn() -> dict:
             # 1. Parse client-provided live telemetry payload if available
             dex_metrics = {}
+            tele_security = {}
             if telemetry_json and len(str(telemetry_json).strip()) > 2:
                 try:
                     parsed_tele = json.loads(str(telemetry_json).strip())
@@ -180,6 +181,15 @@ class MemeRugAuditor(gl.Contract):
                             "smart_money_sentiment": sentiment,
                             "volume_to_liquidity_ratio": round(vol_usd / max(liq_usd, 1.0), 2)
                         }
+
+                        if "mint_disabled" in parsed_tele:
+                            tele_security = {
+                                "mint_authority_disabled": bool(parsed_tele.get("mint_disabled")),
+                                "freeze_authority_disabled": bool(parsed_tele.get("freeze_disabled")),
+                                "lp_burned_pct": _safe_int(parsed_tele.get("lp_burned_pct"), 100),
+                                "top10_holder_pct": _safe_int(parsed_tele.get("top10_holder_pct"), 20),
+                                "detected_risks": parsed_tele.get("detected_risks") if isinstance(parsed_tele.get("detected_risks"), list) else []
+                            }
                 except Exception:
                     pass
 
@@ -337,25 +347,37 @@ class MemeRugAuditor(gl.Contract):
             else:
                 symbol = str(raw_sym)
 
-            # Check explicit authority status if API returned valid status
-            mint_dis = security_metrics.get("mint_authority_disabled", True)
-            freeze_dis = security_metrics.get("freeze_authority_disabled", True)
+            # Check explicit authority status if API / telemetry returned valid status
+            mint_dis = tele_security.get("mint_authority_disabled") if "mint_authority_disabled" in tele_security else security_metrics.get("mint_authority_disabled", True)
+            freeze_dis = tele_security.get("freeze_authority_disabled") if "freeze_authority_disabled" in tele_security else security_metrics.get("freeze_authority_disabled", True)
+            lp_burned = tele_security.get("lp_burned_pct", 100) if "lp_burned_pct" in tele_security else security_metrics.get("lp_burned_pct", 100)
+            top10_pct = tele_security.get("top10_holder_pct", 20) if "top10_holder_pct" in tele_security else security_metrics.get("top10_holder_pct", 20)
+            risks = list(tele_security.get("detected_risks", [])) if "detected_risks" in tele_security else list(security_metrics.get("detected_risks", []))
 
-            score = 85
-            verdict = "SAFE_TO_TRADE"
-            risks = []
-
+            score = 100
             if not mint_dis:
-                score -= 35
-                risks.append("Mint Authority Enabled — Token Inflation Risk")
+                score -= 50
+                if "Mint Authority Enabled — Token Inflation Risk" not in risks:
+                    risks.append("Mint Authority Enabled — Token Inflation Risk")
             if not freeze_dis:
-                score -= 35
-                risks.append("Freeze Authority Enabled — Honeypot Risk")
+                score -= 50
+                if "Freeze Authority Enabled — Honeypot Risk" not in risks:
+                    risks.append("Freeze Authority Enabled — Honeypot Risk")
+            if lp_burned < 80:
+                score -= 30
+                if "Unlocked Liquidity Risk (LP < 80%)" not in risks:
+                    risks.append("Unlocked Liquidity Risk (LP < 80%)")
+            if top10_pct > 40:
+                score -= 20
+                if "High Top 10 Holder Concentration (> 40%)" not in risks:
+                    risks.append("High Top 10 Holder Concentration (> 40%)")
 
-            if score < 50:
+            if score < 50 or not mint_dis or not freeze_dis:
                 verdict = "CRITICAL_RUG_RISK"
             elif score < 80:
                 verdict = "HIGH_VOLATILITY_WARN"
+            else:
+                verdict = "SAFE_TO_TRADE"
 
             liq_val = _safe_float(dex_metrics.get("liquidity_usd"))
             buys_val = _safe_int(dex_metrics.get("txns_24h_buys"))
