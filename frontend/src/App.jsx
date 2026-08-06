@@ -36,7 +36,7 @@ import {
   Check
 } from 'lucide-react';
 
-const DEFAULT_CONTRACT = '0x82D145770E1cE0328FC53f94e286fA108ccFAd5f';
+const DEFAULT_CONTRACT = '0xB3e0dd52ff22C2a6d177C718c0ab075d807d1377';
 const STUDIONET_RPC_URL = 'https://studio.genlayer.com/api';
 const EXPLORER_BASE_URL = 'https://explorer-studio.genlayer.com';
 
@@ -364,9 +364,21 @@ export default function App() {
 
     try {
       await ensureGenLayerNetwork();
-      await fetchDexData(tokenAddress);
+      const currentPair = await fetchDexData(tokenAddress);
       let txHash = null;
       const uniqueRequestId = `req_${(senderAddr || 'anon').slice(-6)}_${tokenAddress.slice(0, 6)}_${Date.now()}`;
+
+      const telemetryPayload = JSON.stringify({
+        token_symbol: currentPair?.baseToken?.symbol || activePreset || 'TOKEN',
+        token_name: currentPair?.baseToken?.name || '',
+        price_usd: currentPair?.priceUsd || '0',
+        liquidity_usd: currentPair?.liquidity?.usd || 0,
+        volume_24h_usd: currentPair?.volume?.h24 || 0,
+        fdv_usd: currentPair?.fdv || currentPair?.marketCap || 0,
+        price_change_24h_pct: currentPair?.priceChange?.h24 || 0,
+        txns_24h_buys: currentPair?.txns?.h24?.buys || 0,
+        txns_24h_sells: currentPair?.txns?.h24?.sells || 0
+      });
 
       if (typeof window.ethereum !== 'undefined' && senderAddr) {
         setAuditStatusText(`🦊 Please confirm GenLayer Call transaction in your MetaMask popup (Fee: 1000 GEN)...`);
@@ -376,7 +388,7 @@ export default function App() {
           txHash = await genClient.writeContract({
             address: contractAddress,
             functionName: 'audit_token',
-            args: [tokenAddress, uniqueRequestId, 1000],
+            args: [tokenAddress, uniqueRequestId, 1000, telemetryPayload],
             account: senderAddr
           });
         } catch (err1) {
@@ -386,7 +398,7 @@ export default function App() {
             txHash = await genClient.writeContract({
               address: contractAddress,
               functionName: 'audit_token',
-              args: [tokenAddress, uniqueRequestId, 1000],
+              args: [tokenAddress, uniqueRequestId, 1000, telemetryPayload],
               account: { address: senderAddr }
             });
           } catch (err2) {
@@ -396,7 +408,7 @@ export default function App() {
               txHash = await genClient.writeContract({
                 address: contractAddress,
                 functionName: 'audit_token',
-                args: [tokenAddress, uniqueRequestId, 1000]
+                args: [tokenAddress, uniqueRequestId, 1000, telemetryPayload]
               });
             } catch (err3) {
               console.error('All writeContract attempts failed:', err3);

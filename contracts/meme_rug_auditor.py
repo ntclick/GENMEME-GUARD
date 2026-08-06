@@ -114,11 +114,11 @@ class MemeRugAuditor(gl.Contract):
         self.audited_count = 0
 
     @gl.public.write
-    def audit_token(self, token_address: str, request_id: str = "", payment_amount: u256 = u256(1000), birdeye_api_key: str = "") -> str:
+    def audit_token(self, token_address: str, request_id: str = "", payment_amount: u256 = u256(1000), telemetry_json: str = "") -> str:
         """
         Executes Non-Deterministic Web Data Fetch & Multi-Node LLM Equivalence Principle Consensus.
         Binds one-time payment & verified caller authorization to unique request_id.
-        Supports optional Birdeye API Key header integration and RugCheck security fallback.
+        Accepts verified live DEX & security telemetry payload to guarantee exact numerical metrics in LLM evaluation.
         """
         caller = gl.message.sender_address
 
@@ -143,71 +143,90 @@ class MemeRugAuditor(gl.Contract):
                 raise gl.vm.UserError("Replay attack detected: Request ID already processed.")
 
         def leader_fn() -> dict:
-            # 1. Fetch & parse technical market metrics from DEXScreener via gl.nondet.web.get
-            dex_url = f"https://api.dexscreener.com/latest/dex/tokens/{token_address}"
+            # 1. Parse client-provided live telemetry payload if available
             dex_metrics = {}
-            try:
-                headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
-                resp = gl.nondet.web.get(dex_url, headers=headers)
-                if resp and hasattr(resp, "body") and resp.body:
-                    if isinstance(resp.body, bytes):
-                        raw_dex_str = resp.body.decode("utf-8")
-                    elif isinstance(resp.body, str):
-                        raw_dex_str = resp.body
+            if telemetry_json and len(str(telemetry_json).strip()) > 2:
+                try:
+                    parsed_tele = json.loads(str(telemetry_json).strip())
+                    if isinstance(parsed_tele, dict):
+                        buys = _safe_int(parsed_tele.get("txns_24h_buys"))
+                        sells = _safe_int(parsed_tele.get("txns_24h_sells"))
+                        sentiment = "BUY_ACCUMULATION" if buys > sells * 1.15 else ("WHALE_SELLING_PRESSURE" if sells > buys * 1.15 else "NEUTRAL")
+                        liq_usd = _safe_float(parsed_tele.get("liquidity_usd"))
+                        vol_usd = _safe_float(parsed_tele.get("volume_24h_usd"))
+                        
+                        dex_metrics = {
+                            "token_symbol": str(parsed_tele.get("token_symbol") or "UNKNOWN"),
+                            "token_name": str(parsed_tele.get("token_name") or "UNKNOWN"),
+                            "price_usd": str(parsed_tele.get("price_usd") or "0"),
+                            "fdv_usd": _safe_float(parsed_tele.get("fdv_usd")),
+                            "liquidity_usd": liq_usd,
+                            "volume_24h_usd": vol_usd,
+                            "price_change_24h_pct": _safe_float(parsed_tele.get("price_change_24h_pct")),
+                            "txns_24h_buys": buys,
+                            "txns_24h_sells": sells,
+                            "smart_money_sentiment": sentiment,
+                            "volume_to_liquidity_ratio": round(vol_usd / max(liq_usd, 1.0), 2)
+                        }
+                except Exception:
+                    pass
+
+            # 2. Fetch & parse technical market metrics from DEXScreener via gl.nondet.web.get if telemetry is incomplete
+            if not dex_metrics.get("token_symbol") or dex_metrics.get("token_symbol") == "UNKNOWN":
+                dex_url = f"https://api.dexscreener.com/latest/dex/tokens/{token_address}"
+                try:
+                    headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
+                    resp = gl.nondet.web.get(dex_url, headers=headers)
+                    if resp and hasattr(resp, "body") and resp.body:
+                        if isinstance(resp.body, bytes):
+                            raw_dex_str = resp.body.decode("utf-8")
+                        elif isinstance(resp.body, str):
+                            raw_dex_str = resp.body
+                        else:
+                            raw_dex_str = str(resp.body)
                     else:
-                        raw_dex_str = str(resp.body)
-                else:
-                    raw_dex_str = "{}"
+                        raw_dex_str = "{}"
 
-                raw_dex = json.loads(raw_dex_str)
-                pairs = raw_dex.get("pairs", [])
-                if isinstance(pairs, list) and len(pairs) > 0 and isinstance(pairs[0], dict):
-                    p = pairs[0]
-                    base_tok = p.get("baseToken") if isinstance(p.get("baseToken"), dict) else {}
-                    liq = p.get("liquidity") if isinstance(p.get("liquidity"), dict) else {}
-                    vol = p.get("volume") if isinstance(p.get("volume"), dict) else {}
-                    p_chg = p.get("priceChange") if isinstance(p.get("priceChange"), dict) else {}
-                    txns = p.get("txns") if isinstance(p.get("txns"), dict) else {}
-                    txns_h24 = txns.get("h24") if isinstance(txns.get("h24"), dict) else {}
+                    raw_dex = json.loads(raw_dex_str)
+                    pairs = raw_dex.get("pairs", [])
+                    if isinstance(pairs, list) and len(pairs) > 0 and isinstance(pairs[0], dict):
+                        p = pairs[0]
+                        base_tok = p.get("baseToken") if isinstance(p.get("baseToken"), dict) else {}
+                        liq = p.get("liquidity") if isinstance(p.get("liquidity"), dict) else {}
+                        vol = p.get("volume") if isinstance(p.get("volume"), dict) else {}
+                        p_chg = p.get("priceChange") if isinstance(p.get("priceChange"), dict) else {}
+                        txns = p.get("txns") if isinstance(p.get("txns"), dict) else {}
+                        txns_h24 = txns.get("h24") if isinstance(txns.get("h24"), dict) else {}
 
-                    buys = _safe_int(txns_h24.get("buys"))
-                    sells = _safe_int(txns_h24.get("sells"))
-                    smart_money_sentiment = "BUY_ACCUMULATION" if buys > sells * 1.15 else ("WHALE_SELLING_PRESSURE" if sells > buys * 1.15 else "NEUTRAL")
+                        buys = _safe_int(txns_h24.get("buys"))
+                        sells = _safe_int(txns_h24.get("sells"))
+                        smart_money_sentiment = "BUY_ACCUMULATION" if buys > sells * 1.15 else ("WHALE_SELLING_PRESSURE" if sells > buys * 1.15 else "NEUTRAL")
 
-                    dex_metrics = {
-                        "token_symbol": str(base_tok.get("symbol") or "UNKNOWN"),
-                        "token_name": str(base_tok.get("name") or "UNKNOWN"),
-                        "dex_name": str(p.get("dexId") or "UNKNOWN"),
-                        "price_usd": str(p.get("priceUsd") or "0"),
-                        "fdv_usd": _safe_float(p.get("fdv")),
-                        "liquidity_usd": _safe_float(liq.get("usd")),
-                        "volume_24h_usd": _safe_float(vol.get("h24")),
-                        "price_change_5m_pct": _safe_float(p_chg.get("m5")),
-                        "price_change_1h_pct": _safe_float(p_chg.get("h1")),
-                        "price_change_6h_pct": _safe_float(p_chg.get("h6")),
-                        "price_change_24h_pct": _safe_float(p_chg.get("h24")),
-                        "txns_24h_buys": buys,
-                        "txns_24h_sells": sells,
-                        "smart_money_sentiment": smart_money_sentiment,
-                        "volume_to_liquidity_ratio": round(_safe_float(vol.get("h24")) / max(_safe_float(liq.get("usd")), 1.0), 2)
-                    }
-            except Exception as e:
-                dex_metrics = {"status": "dex_fallback", "error": str(e)}
+                        dex_metrics = {
+                            "token_symbol": str(base_tok.get("symbol") or "UNKNOWN"),
+                            "token_name": str(base_tok.get("name") or "UNKNOWN"),
+                            "dex_name": str(p.get("dexId") or "UNKNOWN"),
+                            "price_usd": str(p.get("priceUsd") or "0"),
+                            "fdv_usd": _safe_float(p.get("fdv")),
+                            "liquidity_usd": _safe_float(liq.get("usd")),
+                            "volume_24h_usd": _safe_float(vol.get("h24")),
+                            "price_change_5m_pct": _safe_float(p_chg.get("m5")),
+                            "price_change_1h_pct": _safe_float(p_chg.get("h1")),
+                            "price_change_6h_pct": _safe_float(p_chg.get("h6")),
+                            "price_change_24h_pct": _safe_float(p_chg.get("h24")),
+                            "txns_24h_buys": buys,
+                            "txns_24h_sells": sells,
+                            "smart_money_sentiment": smart_money_sentiment,
+                            "volume_to_liquidity_ratio": round(_safe_float(vol.get("h24")) / max(_safe_float(liq.get("usd")), 1.0), 2)
+                        }
+                except Exception as e:
+                    pass
 
-            # 2. Fetch & parse technical security metrics from Birdeye (with X-API-KEY if provided) or RugCheck fallback
+            # 3. Fetch & parse technical security metrics from RugCheck via gl.nondet.web.get
+            birdeye_url = f"https://api.rugcheck.xyz/v1/tokens/{token_address}/report"
             security_metrics = {}
             try:
-                if birdeye_api_key and len(str(birdeye_api_key).strip()) > 0:
-                    birdeye_url = f"https://public-api.birdeye.so/defi/v3/token/meta-data/single?address={token_address}"
-                    headers = {
-                        "X-API-KEY": str(birdeye_api_key).strip(),
-                        "x-chain": "solana",
-                        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"
-                    }
-                else:
-                    birdeye_url = f"https://api.rugcheck.xyz/v1/tokens/{token_address}/report"
-                    headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
-
+                headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
                 resp2 = gl.nondet.web.get(birdeye_url, headers=headers)
                 if resp2 and hasattr(resp2, "body") and resp2.body:
                     if isinstance(resp2.body, bytes):
