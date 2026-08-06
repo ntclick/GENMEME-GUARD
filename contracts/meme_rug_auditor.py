@@ -5,40 +5,52 @@ import json
 
 # Rubric prompt for AI Validators to evaluate Solana meme token rugpull risk based on extracted technical metrics
 RUBRIC_PROMPT = """
-You are a RUTHLESS, ZERO-TOLERANCE Solana Meme Token Security Auditor on GenLayer.
-Analyze extracted technical metrics & security signals for Solana token: {token_address}
+You are a RUTHLESS, DEEP-DIVE Solana Meme Token Security Auditor on GenLayer.
+Perform a thorough, multi-vector technical analysis for Solana token: {token_address}
 
---- Extracted Technical Metrics & On-Chain Data ---
+--- Extracted Technical Metrics & Live On-Chain Telemetry ---
 {tech_data}
 ---
 
-RUTHLESS SCORING RULES (Start at 100 points, deduct aggressively):
-- Mint Authority Enabled (NOT disabled): Deduct 50 points IMMEDIATELY -> Verdict MUST be CRITICAL_RUG_RISK or HIGH_VOLATILITY_WARN!
-- Freeze Authority Enabled (Honeypot risk): Deduct 50 points IMMEDIATELY -> Verdict MUST be CRITICAL_RUG_RISK!
-- Liquidity < $10,000 USD: Deduct 30 points (Flash dump / low depth danger).
-- Volume / Liquidity Ratio > 4.0: Deduct 20 points (Wash trading / extreme volatility).
-- Sell Transactions > Buy Transactions (Whale Dumping): Deduct 25 points.
-- 1h or 24h Price Change < -20%: Deduct 20 points (Dump in progress).
-- Unlocked Liquidity (LP Burned < 80%): Deduct 30 points.
-- Mutable Metadata: Deduct 15 points.
+MULTI-VECTOR TECHNICAL EVALUATION CRITERIA:
+1. CONTRACT AUTHORITIES & SECURITY CONTROLS:
+   - Mint Authority: Active = 50 pts deduction (Token inflation / unlimited supply rug risk).
+   - Freeze Authority: Active = 50 pts deduction (Honeypot / wallet freezing risk).
+   - LP Burned %: < 80% = 30 pts deduction (Rugpull liquidity extraction risk).
+   - Top 10 Holder Concentration: > 40% = 20 pts deduction (Whale dump vulnerability).
+
+2. LIQUIDITY DEPTH & MARKET STRUCTURE:
+   - Liquidity USD: < $10,000 = 30 pts deduction (Flash crash / low depth danger).
+   - Liquidity / FDV Depth %: < 5% = 25 pts deduction (Extreme slippage & price manipulation vulnerability).
+   - Volume / Liquidity Ratio: > 4.0x = 20 pts deduction (Wash trading / high slippage volatility).
+
+3. TRANSACTION FLOW & SMART MONEY RADAR:
+   - Buy vs Sell Txn Ratio: Sells > Buys * 1.15 = 25 pts deduction (Whale dumping outflow pressure).
+   - Price Fluctuation (1h / 24h): < -20% = 20 pts deduction (Dump in progress).
 
 STRICT VERDICT CLASSIFICATION:
-- SAFE_TO_TRADE (Score 80-100): Zero critical flags, Mint & Freeze disabled, Healthy liquidity, Strong buy pressure.
-- HIGH_VOLATILITY_WARN (Score 35-79): Dump pressure, sell dominance, low liquidity, high volume ratio, or volatile price swings.
-- CRITICAL_RUG_RISK (Score 0-34): Active Mint or Freeze authority, honeypot potential, or zero liquidity.
+- SAFE_TO_TRADE (Score 80-100): Mint & Freeze disabled, healthy liquidity depth (>10%), strong buy accumulation, zero critical flags.
+- HIGH_VOLATILITY_WARN (Score 50-79): Volatile price swings, sell dominance, low liquidity depth (<10%), or elevated volume slippage.
+- CRITICAL_RUG_RISK (Score 0-49): Active Mint or Freeze authority, zero liquidity, or severe honeypot threat.
+
+REQUIREMENT FOR "ai_summary":
+Write an unforgiving, deep-dive 3-4 sentence technical audit report. You MUST explicitly cite exact numbers from the telemetry:
+- Exact Liquidity USD ($...), FDV ($...), Liquidity/FDV depth %, Volume/Liquidity ratio.
+- Exact Buy/Sell transactions (X buys vs Y sells, N.Nx buy/sell ratio).
+- Exact Mint & Freeze authority revocation status and LP burn %.
 
 Return strictly a single valid JSON object matching this exact schema — no markdown formatting, no extra text:
 {
     "token_address": "{token_address}",
-    "token_symbol": "<symbol or UNKNOWN>",
-    "safety_score": 45,
+    "token_symbol": "<symbol>",
+    "safety_score": 85,
     "verdict": "<SAFE_TO_TRADE|HIGH_VOLATILITY_WARN|CRITICAL_RUG_RISK>",
     "mint_disabled": true,
     "freeze_disabled": true,
     "lp_burned_pct": 100,
     "top10_holder_pct": 20,
-    "risk_factors": ["explicit risk 1", "explicit risk 2"],
-    "ai_summary": "unforgiving 2-3 sentence technical audit report citing exact buy/sell ratios, liquidity health, and rug risk severity"
+    "risk_factors": ["explicit technical risk 1", "explicit technical risk 2"],
+    "ai_summary": "Comprehensive 3-4 sentence technical audit report citing exact liquidity USD, FDV depth %, buy/sell txn count, volume slippage ratio, and authority revocation status."
 }
 """
 
@@ -345,6 +357,15 @@ class MemeRugAuditor(gl.Contract):
             elif score < 80:
                 verdict = "HIGH_VOLATILITY_WARN"
 
+            liq_val = _safe_float(dex_metrics.get("liquidity_usd"))
+            buys_val = _safe_int(dex_metrics.get("txns_24h_buys"))
+            sells_val = _safe_int(dex_metrics.get("txns_24h_sells"))
+            vol_val = _safe_float(dex_metrics.get("volume_24h_usd"))
+            p_chg = _safe_float(dex_metrics.get("price_change_24h_pct"))
+            sentiment = dex_metrics.get("smart_money_sentiment", "NEUTRAL")
+
+            rich_ai_summary = f"{symbol} audited via multi-vector GenLayer consensus. Mint authority: {'Disabled (Safe)' if mint_dis else 'Active (Inflation Danger)'}, Freeze authority: {'Disabled (Safe)' if freeze_dis else 'Active (Honeypot Danger)'}. 24h market activity recorded ${liq_val:,.0f} USD liquidity with ${vol_val:,.0f} USD volume ({p_chg:+.1f}% 24h trend). Smart Money sentiment: {sentiment} ({buys_val} buys vs {sells_val} sells)."
+
             return {
                 "token_address": token_address,
                 "token_symbol": symbol,
@@ -355,7 +376,7 @@ class MemeRugAuditor(gl.Contract):
                 "lp_burned_pct": 100 if (mint_dis and freeze_dis) else 50,
                 "top10_holder_pct": 20,
                 "risk_factors": risks if risks else ["Volatile Meme Market Dynamics"],
-                "ai_summary": f"Audit completed for {symbol}. Mint authority disabled: {mint_dis}, Freeze authority disabled: {freeze_dis}. Liquidity & volume indicators evaluated via GenLayer LLM consensus."
+                "ai_summary": rich_ai_summary
             }
 
         def validator_fn(leader_result: dict) -> bool:

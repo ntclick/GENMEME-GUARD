@@ -36,7 +36,7 @@ import {
   Check
 } from 'lucide-react';
 
-const DEFAULT_CONTRACT = '0xB3e0dd52ff22C2a6d177C718c0ab075d807d1377';
+const DEFAULT_CONTRACT = '0x4B9bBf0974d0d7F6942268d37fEF6ae420C4a497';
 const STUDIONET_RPC_URL = 'https://studio.genlayer.com/api';
 const EXPLORER_BASE_URL = 'https://explorer-studio.genlayer.com';
 
