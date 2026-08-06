@@ -149,7 +149,16 @@ class MemeRugAuditor(gl.Contract):
             try:
                 headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
                 resp = gl.nondet.web.get(dex_url, headers=headers)
-                raw_dex_str = resp.body.decode("utf-8") if (resp and hasattr(resp, "body") and resp.body) else "{}"
+                if resp and hasattr(resp, "body") and resp.body:
+                    if isinstance(resp.body, bytes):
+                        raw_dex_str = resp.body.decode("utf-8")
+                    elif isinstance(resp.body, str):
+                        raw_dex_str = resp.body
+                    else:
+                        raw_dex_str = str(resp.body)
+                else:
+                    raw_dex_str = "{}"
+
                 raw_dex = json.loads(raw_dex_str)
                 pairs = raw_dex.get("pairs", [])
                 if isinstance(pairs, list) and len(pairs) > 0 and isinstance(pairs[0], dict):
@@ -182,8 +191,8 @@ class MemeRugAuditor(gl.Contract):
                         "smart_money_sentiment": smart_money_sentiment,
                         "volume_to_liquidity_ratio": round(_safe_float(vol.get("h24")) / max(_safe_float(liq.get("usd")), 1.0), 2)
                     }
-            except Exception:
-                dex_metrics = {"status": "dex_fallback"}
+            except Exception as e:
+                dex_metrics = {"status": "dex_fallback", "error": str(e)}
 
             # 2. Fetch & parse technical security metrics from Birdeye / RugCheck via gl.nondet.web.get
             birdeye_url = f"https://api.rugcheck.xyz/v1/tokens/{token_address}/report"
@@ -191,7 +200,16 @@ class MemeRugAuditor(gl.Contract):
             try:
                 headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
                 resp2 = gl.nondet.web.get(birdeye_url, headers=headers)
-                raw_sec_str = resp2.body.decode("utf-8") if (resp2 and hasattr(resp2, "body") and resp2.body) else "{}"
+                if resp2 and hasattr(resp2, "body") and resp2.body:
+                    if isinstance(resp2.body, bytes):
+                        raw_sec_str = resp2.body.decode("utf-8")
+                    elif isinstance(resp2.body, str):
+                        raw_sec_str = resp2.body
+                    else:
+                        raw_sec_str = str(resp2.body)
+                else:
+                    raw_sec_str = "{}"
+
                 raw_sec = json.loads(raw_sec_str)
                 tok_info = raw_sec.get("token") if isinstance(raw_sec.get("token"), dict) else {}
                 risks_list = raw_sec.get("risks") if isinstance(raw_sec.get("risks"), list) else []
@@ -202,8 +220,8 @@ class MemeRugAuditor(gl.Contract):
                     "detected_risks": [str(r.get("name")) for r in risks_list if isinstance(r, dict) and "name" in r],
                     "rugcheck_score": _safe_int(raw_sec.get("score")),
                 }
-            except Exception:
-                security_metrics = {"status": "birdeye_fallback"}
+            except Exception as e:
+                security_metrics = {"status": "birdeye_fallback", "error": str(e)}
 
             tech_summary_json = json.dumps({
                 "token_address": token_address,

@@ -36,7 +36,7 @@ import {
   Check
 } from 'lucide-react';
 
-const DEFAULT_CONTRACT = '0x85841Dc293c665d3d3633fAe4f9F14164Fcb322f';
+const DEFAULT_CONTRACT = '0x8A1a8c2EC7C7867C1b2ECE207B6d84204DeA1f2b';
 const STUDIONET_RPC_URL = 'https://studio.genlayer.com/api';
 const EXPLORER_BASE_URL = 'https://explorer-studio.genlayer.com';
 
@@ -1009,7 +1009,7 @@ export default function App() {
                     Safety Score Index
                   </div>
                   <div style={{ fontSize: '1.2rem', fontWeight: '800', margin: '0.2rem 0' }}>
-                    {auditReport.token_symbol} LLM AI Summary Digest
+                    {(auditReport.token_symbol && auditReport.token_symbol !== 'UNKNOWN') ? auditReport.token_symbol : (dexData?.baseToken?.symbol || activePreset || 'TOKEN')} LLM AI Summary Digest
                   </div>
                   <p style={{ fontSize: '0.85rem', color: auditReport.safety_score >= 80 ? 'var(--neon-cyan)' : auditReport.safety_score >= 50 ? 'var(--neon-yellow)' : 'var(--neon-pink)', lineHeight: '1.5', fontFamily: 'var(--font-sans)' }}>
                     "{auditReport.ai_summary}"
