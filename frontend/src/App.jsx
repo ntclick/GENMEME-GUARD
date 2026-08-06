@@ -342,11 +342,19 @@ export default function App() {
 
   // Trigger GenLayer AI Audit Transaction (HOLDS LOADING STATE UNTIL FRESH ON-CHAIN RESULT ARRIVES)
   const handleTriggerAudit = async () => {
-    if (!tokenAddress.trim()) return;
+    if (!tokenAddress || !tokenAddress.trim()) {
+      alert('Please enter or select a valid Solana Token Mint Address.');
+      return;
+    }
 
     let senderAddr = userAccount;
     if (!senderAddr && typeof window.ethereum !== 'undefined') {
       senderAddr = await connectMetaMask();
+    }
+
+    if (!senderAddr && typeof window.ethereum === 'undefined') {
+      alert('MetaMask extension is not detected. Please install MetaMask to trigger audits on GenLayer.');
+      return;
     }
 
     // IMMEDIATELY CLEAR STALE AUDIT & ENTER LOADING STATE
@@ -361,21 +369,46 @@ export default function App() {
       const uniqueRequestId = `req_${(senderAddr || 'anon').slice(-6)}_${tokenAddress.slice(0, 6)}_${Date.now()}`;
 
       if (typeof window.ethereum !== 'undefined' && senderAddr) {
+        setAuditStatusText(`🦊 Please confirm GenLayer Call transaction in your MetaMask popup (Fee: 1000 GEN)...`);
+        
         try {
-          setAuditStatusText(`🦊 Please confirm GenLayer Call transaction in your MetaMask popup (Fee: 1000 GEN)...`);
-          
+          // Attempt 1: Standard genClient.writeContract
           txHash = await genClient.writeContract({
             address: contractAddress,
             functionName: 'audit_token',
             args: [tokenAddress, uniqueRequestId, 1000],
-            account: { address: senderAddr }
+            account: senderAddr
           });
-        } catch (metamaskErr) {
-          console.warn('MetaMask transaction signing error/rejection:', metamaskErr);
-          if (metamaskErr.code === 4001 || (metamaskErr.message && metamaskErr.message.includes('rejected'))) {
-            setAuditStatusText('❌ Transaction signing cancelled in MetaMask.');
-            setIsAuditing(false);
-            return;
+        } catch (err1) {
+          console.warn('Attempt 1 (string account) failed:', err1);
+          try {
+            // Attempt 2: Object account
+            txHash = await genClient.writeContract({
+              address: contractAddress,
+              functionName: 'audit_token',
+              args: [tokenAddress, uniqueRequestId, 1000],
+              account: { address: senderAddr }
+            });
+          } catch (err2) {
+            console.warn('Attempt 2 (object account) failed:', err2);
+            try {
+              // Attempt 3: No account param (rely on window.ethereum provider)
+              txHash = await genClient.writeContract({
+                address: contractAddress,
+                functionName: 'audit_token',
+                args: [tokenAddress, uniqueRequestId, 1000]
+              });
+            } catch (err3) {
+              console.error('All writeContract attempts failed:', err3);
+              const errMsg = err3?.message || err2?.message || err1?.message || 'Transaction failed';
+              if (errMsg.includes('rejected') || err3?.code === 4001 || err2?.code === 4001) {
+                setAuditStatusText('❌ Transaction signing was rejected in MetaMask.');
+              } else {
+                setAuditStatusText(`❌ MetaMask / RPC Error: ${errMsg.slice(0, 120)}`);
+              }
+              setIsAuditing(false);
+              return;
+            }
           }
         }
       }
@@ -416,6 +449,7 @@ export default function App() {
       }
     } catch (e) {
       console.error('Audit failed:', e);
+      setAuditStatusText(`❌ Audit error: ${e?.message || e}`);
     } finally {
       setIsAuditing(false);
     }
