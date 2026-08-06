@@ -1,0 +1,8 @@
+{
+  "contracts": {
+    "MemeRugAuditor": {
+      "path": "contracts/meme_rug_auditor.py"
+    }
+  },
+  "defaultNetwork": "studionet"
+}
