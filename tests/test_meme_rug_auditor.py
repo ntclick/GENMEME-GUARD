@@ -226,3 +226,50 @@ def test_request_id_mismatch_authorization(direct_vm, direct_deploy, direct_alic
     bob_hex = direct_bob.hex() if isinstance(direct_bob, bytes) else str(direct_bob)
     with pytest.raises(Exception, match="Caller authorization mismatch"):
         contract.get_request_audit("alice_private_req_999", caller_address=bob_hex)
+
+
+def test_run_live_demo_audit(direct_deploy):
+    print("\n" + "=" * 65)
+    print(" GENMEME GUARD -- RUNNING LOCAL GENVM SIMULATOR AUDIT DEMO")
+    print("=" * 65)
+    contract = direct_deploy("contracts/meme_rug_auditor.py")
+    wif_ca = "EKpQGSJtjMFqKZ9KQanSqYXRcF8fBopzLHYxdM65zcjm"
+
+    wif_telemetry = json.dumps({
+        "token_symbol": "WIF",
+        "token_name": "dogwifhat",
+        "price_usd": "2.45",
+        "market_cap_usd": 2450000000.0,
+        "fdv_usd": 2450000000.0,
+        "liquidity_usd": 15420000.0,
+        "volume_24h_usd": 185000000.0,
+        "price_change_24h_pct": 5.2,
+        "txns_24h_buys": 14200,
+        "txns_24h_sells": 11800,
+        "holder_count": 185400,
+        "smart_money_wallets": 42,
+        "top10_holder_pct": 18,
+        "mint_disabled": True,
+        "freeze_disabled": True,
+        "lp_burned_pct": 100,
+        "detected_risks": []
+    })
+
+    print(f"[*] Executing audit_token for WIF ({wif_ca})...")
+    contract.audit_token(wif_ca, request_id="req_pytest_wif_demo_1", payment_amount=1000, telemetry_json=wif_telemetry)
+
+    report = contract.get_audit(wif_ca)
+    print("\n" + "=" * 65)
+    print(" ON-CHAIN AUDIT CONSENSUS RESULT:")
+    print("=" * 65)
+    print(json.dumps(report, indent=2))
+    print("=" * 65)
+    print(f"Safety Score:   {report.get('safety_score')}/100")
+    print(f"Threat Verdict:  {report.get('verdict')}")
+    print(f"Mint Revoked:   {report.get('mint_disabled')}")
+    print(f"Freeze Revoked: {report.get('freeze_disabled')}")
+    print(f"AI Summary:     {report.get('ai_summary')}")
+    print("=" * 65 + "\n")
+    assert report["has_audit"] is True
+    assert report["safety_score"] == 100
+    assert report["verdict"] == "SAFE_TO_TRADE"

@@ -367,6 +367,7 @@ class MemeRugAuditor(gl.Contract):
             top10_pct = tele_security.get("top10_holder_pct", 20) if "top10_holder_pct" in tele_security else security_metrics.get("top10_holder_pct", 20)
             holder_cnt = _safe_int(tele_security.get("holder_count"), 1200)
             smart_wallets = _safe_int(tele_security.get("smart_money_wallets"), 8)
+            risks = list(tele_security.get("detected_risks", [])) if "detected_risks" in tele_security else list(security_metrics.get("detected_risks", []))
 
             liq_val = _safe_float(dex_metrics.get("liquidity_usd"))
             fdv_val = _safe_float(dex_metrics.get("fdv_usd"))
