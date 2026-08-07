@@ -802,6 +802,109 @@ export default function App() {
         </div>
       </section>
 
+      {/* WHY GENMEME GUARD — VALUE PROPOSITION & BENEFITS */}
+      <section className="glass-card" style={{ padding: '2.2rem 2rem', marginBottom: '2.5rem', background: 'linear-gradient(135deg, rgba(15, 23, 42, 0.8), rgba(6, 182, 212, 0.08))', border: '1px solid rgba(0, 240, 255, 0.35)', boxShadow: '0 0 35px rgba(0, 240, 255, 0.1)' }}>
+        <div style={{ textAlign: 'center', marginBottom: '2rem' }}>
+          <div className="hero-badge" style={{ display: 'inline-flex', marginBottom: '0.75rem' }}>
+            <Award size={14} color="var(--neon-green)" /> WHY TRADERS CHOOSE GENMEME GUARD OVER TRADITIONAL SCANNERS
+          </div>
+          <h2 style={{ fontSize: '1.8rem', fontWeight: '900', letterSpacing: '-0.02em', background: 'linear-gradient(90deg, #ffffff, #00f0ff)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}>
+            Unfair Trading Advantages Driven by GenLayer Decentralized AI
+          </h2>
+          <p style={{ fontSize: '0.92rem', color: 'var(--text-muted)', maxWidth: '750px', margin: '0.5rem auto 0 auto' }}>
+            Traditional scanners use superficial static rules that assign fake 100/100 scores to micro-cap scam coins. 
+            GenMeme Guard protects your capital with institutional multi-vector AI analysis and scale-tier ceilings.
+          </p>
+        </div>
+
+        {/* 4 Core Benefit Cards */}
+        <div className="grid-4" style={{ gap: '1.25rem', marginBottom: '2rem' }}>
+          {/* Benefit 1 */}
+          <div className="glass-card" style={{ padding: '1.35rem', border: '1px solid rgba(0, 255, 157, 0.3)', background: 'rgba(0, 255, 157, 0.03)', borderRadius: '16px' }}>
+            <div style={{ background: 'rgba(0, 255, 157, 0.15)', width: '42px', height: '42px', borderRadius: '12px', display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: '1rem', color: 'var(--neon-green)', boxShadow: '0 0 15px rgba(0, 255, 157, 0.2)' }}>
+              <ShieldCheck size={24} />
+            </div>
+            <h3 style={{ fontSize: '1.1rem', fontWeight: '800', color: '#ffffff', marginBottom: '0.4rem' }}>
+              Scale-Tier Cap Ceilings
+            </h3>
+            <p style={{ fontSize: '0.84rem', color: 'var(--text-muted)', lineHeight: '1.5' }}>
+              Micro-cap scam coins (&lt; $100k cap) are hard-capped at <strong>55/100 MAX</strong>. You will never be tricked into buying low-liquidity rugpull traps disguised as safe tokens.
+            </p>
+          </div>
+
+          {/* Benefit 2 */}
+          <div className="glass-card" style={{ padding: '1.35rem', border: '1px solid rgba(0, 240, 255, 0.3)', background: 'rgba(0, 240, 255, 0.03)', borderRadius: '16px' }}>
+            <div style={{ background: 'rgba(0, 240, 255, 0.15)', width: '42px', height: '42px', borderRadius: '12px', display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: '1rem', color: 'var(--neon-cyan)', boxShadow: '0 0 15px rgba(0, 240, 255, 0.2)' }}>
+              <TrendingUp size={24} />
+            </div>
+            <h3 style={{ fontSize: '1.1rem', fontWeight: '800', color: '#ffffff', marginBottom: '0.4rem' }}>
+              Smart Money & Orderbook Radar
+            </h3>
+            <p style={{ fontSize: '0.84rem', color: 'var(--text-muted)', lineHeight: '1.5' }}>
+              Detects real-time buy/sell transaction ratios, holder counts, top 10 concentration, and smart money accumulation before placing your trade.
+            </p>
+          </div>
+
+          {/* Benefit 3 */}
+          <div className="glass-card" style={{ padding: '1.35rem', border: '1px solid rgba(255, 184, 0, 0.3)', background: 'rgba(255, 184, 0, 0.03)', borderRadius: '16px' }}>
+            <div style={{ background: 'rgba(255, 184, 0, 0.15)', width: '42px', height: '42px', borderRadius: '12px', display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: '1rem', color: 'var(--neon-yellow)', boxShadow: '0 0 15px rgba(255, 184, 0, 0.2)' }}>
+              <Zap size={24} />
+            </div>
+            <h3 style={{ fontSize: '1.1rem', fontWeight: '800', color: '#ffffff', marginBottom: '0.4rem' }}>
+              Slippage & Wash-Trading Shield
+            </h3>
+            <p style={{ fontSize: '0.84rem', color: 'var(--text-muted)', lineHeight: '1.5' }}>
+              Identifies fake volume turnover spikes (&gt;4.0x) and thin liquidity depth % to protect you from flash crashes and market maker manipulation.
+            </p>
+          </div>
+
+          {/* Benefit 4 */}
+          <div className="glass-card" style={{ padding: '1.35rem', border: '1px solid rgba(157, 78, 221, 0.3)', background: 'rgba(157, 78, 221, 0.03)', borderRadius: '16px' }}>
+            <div style={{ background: 'rgba(157, 78, 221, 0.15)', width: '42px', height: '42px', borderRadius: '12px', display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: '1rem', color: 'var(--neon-purple)', boxShadow: '0 0 15px rgba(157, 78, 221, 0.2)' }}>
+              <Cpu size={24} />
+            </div>
+            <h3 style={{ fontSize: '1.1rem', fontWeight: '800', color: '#ffffff', marginBottom: '0.4rem' }}>
+              GenLayer Decentralized AI
+            </h3>
+            <p style={{ fontSize: '0.84rem', color: 'var(--text-muted)', lineHeight: '1.5' }}>
+              Audit verdicts are cross-verified by decentralized BFT Optimistic Democracy AI validators and permanently finalized on GenLayer blockchain.
+            </p>
+          </div>
+        </div>
+
+        {/* Traditional Scanners vs GenMeme Guard Comparison Box */}
+        <div style={{ background: 'rgba(7, 10, 18, 0.7)', borderRadius: '16px', padding: '1.5rem', border: '1px solid rgba(255, 255, 255, 0.08)' }}>
+          <div style={{ fontSize: '0.95rem', fontWeight: '800', color: '#ffffff', marginBottom: '1rem', textAlign: 'center', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+            ⚔️ TRADITIONAL SCANNERS VS GENMEME GUARD
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '1.25rem' }}>
+            <div style={{ background: 'rgba(255, 42, 109, 0.05)', padding: '1rem 1.25rem', borderRadius: '12px', border: '1px solid rgba(255, 42, 109, 0.25)' }}>
+              <div style={{ fontWeight: '800', color: 'var(--neon-pink)', marginBottom: '0.5rem', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                ❌ Traditional Scanners (RugCheck, DEXScreener)
+              </div>
+              <ul style={{ fontSize: '0.82rem', color: 'var(--text-muted)', paddingLeft: '1.1rem', margin: 0, lineHeight: '1.7' }}>
+                <li>Static rules giving 100/100 to worthless micro-cap scam coins</li>
+                <li>Ignores whale sell outflow &amp; insider wallet dumping</li>
+                <li>Centralized API easily misled by fake wash trading volume</li>
+                <li>No scale-tier caps based on market capitalization</li>
+              </ul>
+            </div>
+
+            <div style={{ background: 'rgba(0, 255, 157, 0.05)', padding: '1rem 1.25rem', borderRadius: '12px', border: '1px solid rgba(0, 255, 157, 0.3)' }}>
+              <div style={{ fontWeight: '800', color: 'var(--neon-green)', marginBottom: '0.5rem', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                ✅ GenMeme Guard AI Consensus
+              </div>
+              <ul style={{ fontSize: '0.82rem', color: '#e2e8f0', paddingLeft: '1.1rem', margin: 0, lineHeight: '1.7' }}>
+                <li>Hard scale-tier ceilings capping micro-caps at 55/100 MAX</li>
+                <li>Real-time Smart Money radar tracking buy/sell transaction ratios</li>
+                <li>Decentralized multi-validator LLM consensus cross-verification</li>
+                <li>Immutable, tamper-proof audit records stored on GenLayer RPC</li>
+              </ul>
+            </div>
+          </div>
+        </div>
+      </section>
+
       {/* Main Search & Presets Section */}
       <section className="glass-card" style={{ padding: '1.75rem', marginBottom: '2rem' }}>
         <h2 style={{ fontSize: '1.1rem', fontWeight: '800', marginBottom: '1rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
