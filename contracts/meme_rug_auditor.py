@@ -3,47 +3,48 @@ from genlayer import *
 from dataclasses import dataclass
 import json
 
-# Rubric prompt for AI Validators to evaluate Solana meme token rugpull risk based on extracted technical metrics
+# Institutional-grade Rubric prompt for Senior On-Chain Forensic AI Auditors to evaluate Solana meme token rugpull risk
 RUBRIC_PROMPT = """
-You are a RUTHLESS, DEEP-DIVE Solana Meme Token Security Auditor on GenLayer.
-Analyze the following CLEAN JSON TELEMETRY for Solana token: {token_address}
+You are a SENIOR WEB3 SECURITY AUDITOR & QUANTITATIVE ON-CHAIN FORENSIC ANALYST at GenLayer Security Intelligence Lab.
+Perform a RUTHLESS, INSTITUTIONAL-GRADE FORENSIC SECURITY AUDIT on Solana token: {token_address}
 
---- Extracted Clean Telemetry Payload ---
+--- Extracted Clean On-Chain Telemetry & Market Data ---
 {tech_data}
 ---
 
-RIGOROUS DYNAMIC SCORING MATRIX (Start at 70 points Baseline — NOT 100):
-1. CONTRACT AUTHORITIES & SECURITY CONTROLS:
-   - Mint Authority Active: Immediate -50 pts -> Verdict MUST be CRITICAL_RUG_RISK!
-   - Freeze Authority Active: Immediate -50 pts -> Verdict MUST be CRITICAL_RUG_RISK!
-   - LP Burned %: < 50% = -40 pts; 50-80% = -20 pts; >= 95% = +5 pts.
+INSTITUTIONAL FORENSIC EVALUATION VECTORS:
+VECTOR 1: CONTRACT CONTROL & HOOK SECURITY
+- Mint Authority Active: Immediate -50 pts (Severe inflation & unlimited token supply minting hazard).
+- Freeze Authority Active: Immediate -50 pts (Honeypot risk — contract owner can freeze user wallets).
+- LP Token Burned %: < 50% = -40 pts; 50-80% = -20 pts; >= 95% = +5 pts.
 
-2. SMART MONEY RADAR & BUY/SELL INFLOW VELOCITY (txns_24h_buys vs txns_24h_sells):
-   - Buy/Sell Ratio < 0.8 (Sell Dominance / Whale Dumping): Deduct 25 pts.
-   - Buy/Sell Ratio 0.8 - 1.0 (Neutral/Sell Bias): Deduct 10 pts.
-   - Buy/Sell Ratio > 1.4 (Strong Smart Money Inflow): Add 15 pts.
+VECTOR 2: SMART MONEY RADAR & ORDERBOOK ASYMMETRY
+- Buy/Sell Ratio < 0.8 (Sell Dominance / Whale Dumping): -25 pts (Retail absorption & insider dump risk).
+- Buy/Sell Ratio 0.8 - 1.0 (Selling Bias): -10 pts.
+- Buy/Sell Ratio > 1.4 (Genuine Smart Money Accumulation): +15 pts.
 
-3. LIQUIDITY DEPTH & MARKET STRUCTURE (liquidity_usd, fdv_usd):
-   - Liquidity USD < $10,000: Deduct 30 pts (Micro depth flash crash risk).
-   - Liquidity USD < $30,000: Deduct 15 pts.
-   - Liquidity USD > $100,000: Add 10 pts.
-   - Liquidity / FDV Depth % < 5%: Deduct 20 pts (Paper thin liquidity — extreme slippage risk).
-   - Volume / Liquidity Ratio > 4.0x: Deduct 20 pts (Wash trading / high volatility).
+VECTOR 3: LIQUIDITY DEPTH STRESS TEST & SLIPPAGE RISK
+- Liquidity USD < $10,000: -30 pts (Micro depth — flash crash & illiquidity hazard).
+- Liquidity USD < $30,000: -15 pts.
+- Liquidity USD > $100,000: +10 pts.
+- Liquidity / FDV Depth % < 5%: -20 pts (Paper-thin depth — heavy slippage & price manipulation vulnerability).
+- Volume / Liquidity Turnover > 4.0x: -20 pts (Elevated wash-trading or extreme volatility).
 
-4. PRICE TRAJECTORY (price_change_24h_pct):
-   - 24h Price Change < -20%: Deduct 20 pts (Dump in progress).
-   - 24h Price Change < -5%: Deduct 10 pts.
+VECTOR 4: PRICE TRAJECTORY & MOMENTUM DECAY
+- 24h Price Change < -20%: -20 pts (Severe downward price spiral).
+- 24h Price Change < -5%: -10 pts.
 
-VERDICT CLASSIFICATION:
-- SAFE_TO_TRADE (Score 80-100): Zero active authorities, LP burned > 90%, strong smart money buy pressure, deep liquidity.
-- HIGH_VOLATILITY_WARN (Score 50-79): Moderate liquidity, negative price trajectory, sell dominance, or high volume slippage.
-- CRITICAL_RUG_RISK (Score 0-49): Active Mint/Freeze authority, unlocked LP, or severe dump outflow.
+VERDICT THREAT CLASSIFICATION:
+- SAFE_TO_TRADE (Score 80-100): Zero active contract hooks, LP burned > 90%, strong smart money inflow, deep liquidity depth.
+- HIGH_VOLATILITY_WARN (Score 50-79): Moderate liquidity depth, sell dominance, negative price trajectory, or elevated turnover.
+- CRITICAL_RUG_RISK (Score 0-49): Active Mint/Freeze hooks, unlocked LP, severe whale dumping, or micro liquidity.
 
 REQUIREMENT FOR "ai_summary":
-Write an unforgiving 3-4 sentence technical diagnosis. You MUST explicitly cite:
-- Exact Liquidity USD ($...), FDV ($...), Buy/Sell txn count (X buys vs Y sells, N.Nx buy/sell ratio).
-- Exact 24h Price Change % and Volume/Liquidity Slippage ratio.
-- Exact Mint/Freeze revocation status and LP Burn %.
+Write an INSTITUTIONAL 4-SENTENCE FORENSIC AUDIT BRIEF citing exact figures:
+Sentence 1: Formal verdict & risk tier statement.
+Sentence 2: Contract authority status (Mint & Freeze revocation) and LP burn security.
+Sentence 3: Quantitative market metrics (Liquidity USD, FDV Depth %, 24h Volume, Buy/Sell txn count & Buy Pressure ratio).
+Sentence 4: Actionable quantitative trader risk guidance.
 
 Return strictly a single valid JSON object matching this exact schema — no markdown formatting, no extra text:
 {
@@ -55,8 +56,8 @@ Return strictly a single valid JSON object matching this exact schema — no mar
     "freeze_disabled": true,
     "lp_burned_pct": 100,
     "top10_holder_pct": 20,
-    "risk_factors": ["explicit risk 1", "explicit risk 2"],
-    "ai_summary": "Unforgiving 3-4 sentence technical audit report citing exact numbers for liquidity, volume, buy/sell ratio, price change %, and contract security controls."
+    "risk_factors": ["explicit institutional risk 1", "explicit institutional risk 2"],
+    "ai_summary": "Formal 4-sentence senior forensic audit brief citing exact liquidity, volume, buy/sell pressure ratio, price trajectory, and contract hook security."
 }
 """
 
@@ -448,7 +449,22 @@ class MemeRugAuditor(gl.Contract):
             else:
                 verdict = "SAFE_TO_TRADE"
 
-            rich_ai_summary = f"{symbol} audited via multi-vector GenLayer consensus. Mint authority: {'Disabled (Safe)' if mint_dis else 'Active (Inflation Danger)'}, Freeze authority: {'Disabled (Safe)' if freeze_dis else 'Active (Honeypot Danger)'}. 24h market activity recorded ${liq_val:,.0f} USD liquidity with ${vol_val:,.0f} USD volume ({p_chg:+.1f}% 24h trend). Smart Money sentiment: {sentiment} ({buys_val} buys vs {sells_val} sells, {bs_ratio:.2f}x buy pressure)."
+            advice = (
+                "High trading safety verified with strong buy pressure and locked liquidity."
+                if verdict == "SAFE_TO_TRADE"
+                else (
+                    "Exercise caution due to elevated price volatility, sell dominance, or high volume slippage."
+                    if verdict == "HIGH_VOLATILITY_WARN"
+                    else "CRITICAL DANGER: Avoid trading due to active contract hooks or severe liquidity/dump risks."
+                )
+            )
+
+            rich_ai_summary = (
+                f"Formal Forensic Audit Verdict: {verdict} (Score {score}/100). "
+                f"Contract hooks status: Mint authority {'Disabled (Safe)' if mint_dis else 'ACTIVE (INFLATION HAZARD)'}, Freeze authority {'Disabled (Safe)' if freeze_dis else 'ACTIVE (HONEYPOT HAZARD)'}, LP Burned {lp_burned}%. "
+                f"Quantitative DEX Metrics: Liquidity ${liq_val:,.0f} USD ({depth_pct:.1f}% FDV depth), 24h Volume ${vol_val:,.0f} USD ({vol_to_liq:.1f}x turnover), Price Trend {p_chg:+.1f}%, Orderbook Inflow: {buys_val} buys vs {sells_val} sells ({bs_ratio:.2f}x buy pressure). "
+                f"Trader Risk Guidance: {advice}"
+            )
 
             return {
                 "token_address": token_address,
