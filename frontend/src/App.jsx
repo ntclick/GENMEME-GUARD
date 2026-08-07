@@ -33,7 +33,8 @@ import {
   Sparkles,
   ArrowRight,
   Eye,
-  Check
+  Check,
+  Award
 } from 'lucide-react';
 
 const DEFAULT_CONTRACT = '0x95BF2eFBcadf2Ea351edd04dA406855a5aB78BcB';
