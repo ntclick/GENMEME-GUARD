@@ -3,58 +3,66 @@ from genlayer import *
 from dataclasses import dataclass
 import json
 
-# Institutional-grade Rubric prompt for Senior Birdeye & On-Chain Forensic AI Auditors to evaluate Solana meme tokens
+# Institutional-grade Rubric prompt for Senior On-Chain Forensic AI Auditors with Scale-Tier Architecture
 RUBRIC_PROMPT = """
-You are a SENIOR ON-CHAIN FORENSIC ANALYST at GenLayer Security Intelligence Lab specializing in Birdeye & DEX Telemetry.
-Perform a RUTHLESS FORENSIC AUDIT on Solana token: {token_address} using the extracted Birdeye & On-Chain JSON payload below.
+You are a SENIOR QUANTITATIVE ON-CHAIN ANALYST at GenLayer Security Intelligence Lab.
+Perform a FORENSIC SCALE-TIER AUDIT on Solana token: {token_address} using the telemetry payload below.
 
 --- Extracted Birdeye & On-Chain Telemetry Payload ---
 {tech_data}
 ---
 
-INSTITUTIONAL EVALUATION VECTORS:
-1. CONTRACT HOOK SECURITY & AUTHORITIES:
+INSTITUTIONAL SCALE-TIER SCORING MATRIX:
+
+1. MARKET CAP & LIQUIDITY SCALE TIERS (HARD CEILINGS):
+   - Tier 1 Micro-Cap (Market Cap < $100,000 USD OR Liquidity < $20,000 USD):
+     MAX SCORE CEILING = 55 PTS (CANNOT exceed 55 / HIGH_VOLATILITY_WARN, no matter what!). Deduct 35 pts for unproven micro liquidity depth.
+   - Tier 2 Small-Cap (Market Cap $100,000 - $1,000,000 USD):
+     MAX SCORE CEILING = 75 PTS.
+   - Tier 3 Mid-Cap (Market Cap $1,000,000 - $10,000,000 USD):
+     MAX SCORE CEILING = 88 PTS.
+   - Tier 4 Institutional Bluechip Meme (Market Cap > $10,000,000 USD & Liquidity > $500,000 USD):
+     MAX SCORE CEILING = 100 PTS. Add +25 pts for proven multi-million market resilience & deep liquidity depth!
+
+2. CONTRACT HOOK SECURITY:
    - Mint Authority Active: Immediate -50 pts -> Verdict MUST be CRITICAL_RUG_RISK!
    - Freeze Authority Active: Immediate -50 pts -> Verdict MUST be CRITICAL_RUG_RISK!
    - LP Burned %: < 50% = -40 pts; 50-80% = -20 pts; >= 95% = +5 pts.
 
-2. HOLDER DISTRIBUTION & SMART MONEY WALLETS:
-   - Holder Count < 150: -25 pts (Insider Sybil / Synthetic Community Risk).
-   - Holder Count > 3,000: +10 pts (Strong Organic Distribution).
-   - Smart Money Wallets < 3: -20 pts (Retail Trap — Lack of Smart Money Accumulation).
-   - Smart Money Wallets >= 10: +15 pts (Verified Institutional / Smart Money Inflow).
-   - Top 10 Holder Concentration > 40%: -25 pts (Whale Dumping Vulnerability).
+3. HOLDER DISTRIBUTION & SMART MONEY NETWORK:
+   - Holder Count > 10,000: +15 pts; < 200: -25 pts (Insider Sybil risk).
+   - Smart Money Wallets >= 15: +15 pts; < 3: -20 pts (Retail Trap).
+   - Top 10 Holder Concentration > 40%: -25 pts.
 
-3. MARKET CAP & LIQUIDITY DEPTH STRESS TEST:
-   - Market Cap USD < $50,000: -25 pts (Micro-Cap Liquidation Danger).
-   - Liquidity USD < $10,000: -30 pts (Flash Crash Illiquidity Risk).
-   - Liquidity / FDV Depth % < 5%: -20 pts (Paper Thin Depth — High Slippage Risk).
+4. ORDERBOOK INFLOW & TRADING VELOCITY:
+   - Buy/Sell Ratio > 1.2: +10 pts; < 0.8: -20 pts (Whale Dumping Outflow).
 
-4. SMART MONEY ORDERBOOK INFLOW & PRICE MOMENTUM:
-   - Buy/Sell Ratio < 0.8: -25 pts (Whale Dumping Outflow Pressure).
-   - 24h Price Change < -20%: -20 pts (Severe Downward Spiral).
+VERDICT CLASSIFICATION:
+- SAFE_TO_TRADE (Score 80-100): Tier 3/4 Mid/Large Cap, zero active hooks, LP burned > 90%, strong smart money accumulation.
+- HIGH_VOLATILITY_WARN (Score 50-79): Tier 1/2 Micro/Small Cap, moderate liquidity, or elevated price swings.
+- CRITICAL_RUG_RISK (Score 0-49): Active Mint/Freeze hooks, unlocked LP, severe whale dumping, or micro liquidity crash danger.
 
 REQUIREMENT FOR "ai_summary":
-Write an INSTITUTIONAL 4-SENTENCE BIRDEYE FORENSIC BRIEF citing exact figures:
-Sentence 1: Formal verdict & risk level classification.
-Sentence 2: Contract hooks status (Mint/Freeze revocation) and LP burn security %.
-Sentence 3: Birdeye On-Chain metrics (Market Cap USD, Holder Count, Smart Money Wallets count, Top 10 Holder %).
-Sentence 4: DEX Trading metrics (Liquidity USD, 24h Volume, Buy/Sell txn ratio & 24h Price trend %).
+Write an INSTITUTIONAL 4-SENTENCE BIRDEYE FORENSIC BRIEF:
+Sentence 1: Formal verdict & Scale-Tier classification (e.g., Tier 4 Institutional Bluechip vs Tier 1 Micro-Cap).
+Sentence 2: Market Cap ($...), Liquidity ($...), Holder Count, and Smart Money Wallets count.
+Sentence 3: Contract Hooks status (Mint/Freeze revocation) and LP Burn %.
+Sentence 4: Quantitative orderbook inflow (Buys vs Sells) and 24h price trajectory %.
 
 Return strictly a single valid JSON object matching this exact schema — no markdown formatting, no extra text:
 {
     "token_address": "{token_address}",
     "token_symbol": "<symbol>",
-    "safety_score": 68,
+    "safety_score": 88,
     "verdict": "<SAFE_TO_TRADE|HIGH_VOLATILITY_WARN|CRITICAL_RUG_RISK>",
     "mint_disabled": true,
     "freeze_disabled": true,
     "lp_burned_pct": 100,
     "top10_holder_pct": 20,
-    "holder_count": 1500,
-    "smart_money_wallets": 12,
-    "risk_factors": ["explicit Birdeye risk 1", "explicit Birdeye risk 2"],
-    "ai_summary": "Formal 4-sentence Birdeye forensic audit brief citing exact market cap, holder count, smart money wallets count, liquidity, buy/sell ratio, and contract security hooks."
+    "holder_count": 18500,
+    "smart_money_wallets": 24,
+    "risk_factors": ["explicit Scale-Tier risk 1", "explicit Scale-Tier risk 2"],
+    "ai_summary": "Formal 4-sentence Scale-Tier forensic audit brief citing exact market scale tier, market cap, holder count, smart money wallets count, liquidity depth, and contract hook security."
 }
 """
 
@@ -368,8 +376,30 @@ class MemeRugAuditor(gl.Contract):
             p_chg = _safe_float(dex_metrics.get("price_change_24h_pct"))
             sentiment = dex_metrics.get("smart_money_sentiment", "NEUTRAL")
 
-            # RIGOROUS SCORING MATRIX: Baseline = 70 points
-            score = 70
+            # SCALE-TIER ARCHITECTURE: Baseline & Ceiling driven by Market Cap Scale
+            max_score_ceiling = 100
+            tier_name = "Tier 4 Institutional Bluechip"
+
+            if fdv_val < 100000 or liq_val < 20000:
+                max_score_ceiling = 55
+                tier_name = "Tier 1 Micro-Cap Dump Hazard"
+                score = 40
+                if f"Tier 1 Micro-Cap Risk (${fdv_val:,.0f} USD Market Cap / ${liq_val:,.0f} USD Liq)" not in risks:
+                    risks.append(f"Tier 1 Micro-Cap Risk (${fdv_val:,.0f} USD Market Cap / ${liq_val:,.0f} USD Liq)")
+            elif fdv_val < 1000000:
+                max_score_ceiling = 75
+                tier_name = "Tier 2 Small-Cap Speculative"
+                score = 55
+            elif fdv_val < 10000000:
+                max_score_ceiling = 88
+                tier_name = "Tier 3 Mid-Cap Established"
+                score = 70
+            else:
+                max_score_ceiling = 100
+                tier_name = "Tier 4 Institutional Bluechip"
+                score = 75
+                if liq_val > 500000:
+                    score += 15
 
             # 1. Authority Controls
             if not mint_dis:
@@ -396,47 +426,26 @@ class MemeRugAuditor(gl.Contract):
                 score -= 25
                 if f"Low Holder Count Danger ({holder_cnt} holders)" not in risks:
                     risks.append(f"Low Holder Count Danger ({holder_cnt} holders)")
+            elif holder_cnt > 10000:
+                score += 15
             elif holder_cnt > 3000:
-                score += 10
+                score += 8
 
             if smart_wallets < 3:
                 score -= 20
                 if f"Retail Trap Warning — Insufficient Smart Money Wallets ({smart_wallets})" not in risks:
                     risks.append(f"Retail Trap Warning — Insufficient Smart Money Wallets ({smart_wallets})")
-            elif smart_wallets >= 10:
+            elif smart_wallets >= 15:
                 score += 15
+            elif smart_wallets >= 8:
+                score += 5
 
             if top10_pct > 40:
                 score -= 25
                 if f"Whale Concentration Hazard (Top 10 Holders {top10_pct}%)" not in risks:
                     risks.append(f"Whale Concentration Hazard (Top 10 Holders {top10_pct}%)")
 
-            # 3. Market Cap & Liquidity Depth Stress Test
-            if fdv_val < 50000:
-                score -= 25
-                if f"Micro-Cap Liquidation Danger (${fdv_val:,.0f} USD FDV)" not in risks:
-                    risks.append(f"Micro-Cap Liquidation Danger (${fdv_val:,.0f} USD FDV)")
-            elif fdv_val > 1000000:
-                score += 10
-
-            if liq_val < 10000:
-                score -= 30
-                if f"Micro Liquidity Flash Crash Danger (${liq_val:,.0f} USD)" not in risks:
-                    risks.append(f"Micro Liquidity Flash Crash Danger (${liq_val:,.0f} USD)")
-            elif liq_val < 30000:
-                score -= 15
-            elif liq_val > 100000:
-                score += 10
-
-            depth_pct = (liq_val / max(fdv_val, 1.0)) * 100.0 if fdv_val > 0 else 10.0
-            if depth_pct < 5.0:
-                score -= 20
-                if f"Paper Thin Liquidity Depth ({depth_pct:.1f}% FDV)" not in risks:
-                    risks.append(f"Paper Thin Liquidity Depth ({depth_pct:.1f}% FDV)")
-            elif depth_pct > 15.0:
-                score += 5
-
-            # 4. Smart Money Orderbook Inflow / Outflow Ratio
+            # 3. Smart Money Orderbook Inflow / Outflow Ratio
             bs_ratio = buys_val / max(sells_val, 1)
             if bs_ratio < 0.8:
                 score -= 25
@@ -445,18 +454,19 @@ class MemeRugAuditor(gl.Contract):
             elif bs_ratio < 1.0:
                 score -= 10
             elif bs_ratio > 1.4:
-                score += 15
+                score += 10
 
-            # 5. Volume Turnover & Slippage Ratio
+            # 4. Volume Turnover & Slippage Ratio (Turnover is normalized for multi-million bluechip liquidity)
             vol_to_liq = vol_val / max(liq_val, 1.0)
-            if vol_to_liq > 4.0:
-                score -= 20
-                if f"Elevated Volume Turnover / Slippage Danger ({vol_to_liq:.1f}x)" not in risks:
-                    risks.append(f"Elevated Volume Turnover / Slippage Danger ({vol_to_liq:.1f}x)")
-            elif vol_to_liq > 2.5:
-                score -= 10
+            if liq_val < 500000:
+                if vol_to_liq > 4.0:
+                    score -= 20
+                    if f"Elevated Volume Turnover / Slippage Danger ({vol_to_liq:.1f}x)" not in risks:
+                        risks.append(f"Elevated Volume Turnover / Slippage Danger ({vol_to_liq:.1f}x)")
+                elif vol_to_liq > 2.5:
+                    score -= 10
 
-            # 6. Price Trajectory
+            # 5. Price Trajectory
             if p_chg < -20.0:
                 score -= 20
                 if f"Heavy 24h Price Downward Spiral ({p_chg:+.1f}%)" not in risks:
@@ -466,7 +476,7 @@ class MemeRugAuditor(gl.Contract):
             elif p_chg > 10.0:
                 score += 5
 
-            score = max(0, min(100, score))
+            score = max(0, min(max_score_ceiling, score))
 
             if score < 50 or not mint_dis or not freeze_dis:
                 verdict = "CRITICAL_RUG_RISK"
@@ -476,10 +486,10 @@ class MemeRugAuditor(gl.Contract):
                 verdict = "SAFE_TO_TRADE"
 
             rich_ai_summary = (
-                f"Formal Birdeye Forensic Audit Verdict: {verdict} (Score {score}/100). "
+                f"Formal Birdeye Forensic Audit Verdict: {verdict} (Score {score}/100) — [{tier_name}]. "
                 f"Contract hooks status: Mint authority {'Disabled (Safe)' if mint_dis else 'ACTIVE (INFLATION HAZARD)'}, Freeze authority {'Disabled (Safe)' if freeze_dis else 'ACTIVE (HONEYPOT HAZARD)'}, LP Burned {lp_burned}%. "
                 f"Birdeye On-Chain Metrics: Market Cap ${fdv_val:,.0f} USD, Holder Count {holder_cnt:,}, Smart Money Wallets {smart_wallets} ({'Verified Smart Money Accumulation' if smart_wallets >= 10 else 'Retail Warning'}), Top 10 Holders {top10_pct}%. "
-                f"DEX Trading Telemetry: Liquidity ${liq_val:,.0f} USD ({depth_pct:.1f}% FDV depth), 24h Volume ${vol_val:,.0f} USD ({vol_to_liq:.1f}x turnover), Price Trend {p_chg:+.1f}%, Orderbook Inflow: {buys_val} buys vs {sells_val} sells ({bs_ratio:.2f}x buy pressure)."
+                f"DEX Trading Telemetry: Liquidity ${liq_val:,.0f} USD, 24h Volume ${vol_val:,.0f} USD ({vol_to_liq:.1f}x turnover), Price Trend {p_chg:+.1f}%, Orderbook Inflow: {buys_val} buys vs {sells_val} sells ({bs_ratio:.2f}x buy pressure)."
             )
 
             return {
