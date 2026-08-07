@@ -321,3 +321,83 @@ def test_run_sgl_token_audit(direct_deploy):
     assert report["token_address"] == sgl_ca
     assert report["token_symbol"] == "SGL"
     assert report["verdict"] == "SAFE_TO_TRADE"
+
+
+def test_run_micro_cap_scam_audit(direct_deploy):
+    print("\n" + "=" * 65)
+    print(" GENMEME GUARD -- AUDIT TEST FOR MICRO-CAP RUG SCAM COIN")
+    print("=" * 65)
+    contract = direct_deploy("contracts/meme_rug_auditor.py")
+    scam_ca = "ScamPUMP11111111111111111111111111111111111111"
+
+    scam_telemetry = json.dumps({
+        "token_symbol": "PUMP_SCAM",
+        "token_name": "Pump Dump Rug Coin",
+        "price_usd": "0.000012",
+        "market_cap_usd": 12000.0,
+        "fdv_usd": 12000.0,
+        "liquidity_usd": 2500.0,
+        "volume_24h_usd": 85000.0,
+        "price_change_24h_pct": -45.2,
+        "txns_24h_buys": 120,
+        "txns_24h_sells": 890,
+        "holder_count": 85,
+        "smart_money_wallets": 1,
+        "top10_holder_pct": 78,
+        "mint_disabled": False,  # Active Mint Authority!
+        "freeze_disabled": False, # Active Freeze Authority!
+        "lp_burned_pct": 15,     # Unlocked LP!
+        "detected_risks": ["Active Mint Authority", "Active Freeze Authority", "Unlocked Liquidity"]
+    })
+
+    contract.audit_token(scam_ca, request_id="req_pytest_scam_1", payment_amount=1000, telemetry_json=scam_telemetry)
+    report = contract.get_audit(scam_ca)
+    print(json.dumps(report, indent=2))
+    print("=" * 65)
+    print(f"Safety Score:   {report.get('safety_score')}/100")
+    print(f"Threat Verdict:  {report.get('verdict')}")
+    print("=" * 65 + "\n")
+    assert report["has_audit"] is True
+    assert report["safety_score"] == 0  # DYNAMICALLY SCORED AT 0/100!
+    assert report["verdict"] == "CRITICAL_RUG_RISK"
+    assert report["mint_disabled"] is False
+    assert report["freeze_disabled"] is False
+
+
+def test_run_small_cap_speculative_audit(direct_deploy):
+    print("\n" + "=" * 65)
+    print(" GENMEME GUARD -- AUDIT TEST FOR SMALL-CAP SPECULATIVE COIN")
+    print("=" * 65)
+    contract = direct_deploy("contracts/meme_rug_auditor.py")
+    small_ca = "SmallCap444444444444444444444444444444444444"
+
+    small_telemetry = json.dumps({
+        "token_symbol": "MID_CAP",
+        "token_name": "Speculative Meme Coin",
+        "price_usd": "0.045",
+        "market_cap_usd": 450000.0,
+        "fdv_usd": 450000.0,
+        "liquidity_usd": 45000.0,
+        "volume_24h_usd": 120000.0,
+        "price_change_24h_pct": -8.5,
+        "txns_24h_buys": 450,
+        "txns_24h_sells": 520,
+        "holder_count": 850,
+        "smart_money_wallets": 4,
+        "top10_holder_pct": 28,
+        "mint_disabled": True,
+        "freeze_disabled": True,
+        "lp_burned_pct": 100,
+        "detected_risks": []
+    })
+
+    contract.audit_token(small_ca, request_id="req_pytest_small_1", payment_amount=1000, telemetry_json=small_telemetry)
+    report = contract.get_audit(small_ca)
+    print(json.dumps(report, indent=2))
+    print("=" * 65)
+    print(f"Safety Score:   {report.get('safety_score')}/100")
+    print(f"Threat Verdict:  {report.get('verdict')}")
+    print("=" * 65 + "\n")
+    assert report["has_audit"] is True
+    assert report["safety_score"] == 30  # DYNAMICALLY SCORED AT 30/100 (CAPPED AT TIER 2 & PENALIZED FOR DUMP PRESSURE)!
+    assert report["verdict"] == "CRITICAL_RUG_RISK"
