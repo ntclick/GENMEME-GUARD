@@ -6,51 +6,57 @@ import json
 # Rubric prompt for AI Validators to evaluate Solana meme token rugpull risk based on extracted technical metrics
 RUBRIC_PROMPT = """
 You are a RUTHLESS, DEEP-DIVE Solana Meme Token Security Auditor on GenLayer.
-Perform a thorough, multi-vector technical analysis for Solana token: {token_address}
+Analyze the following CLEAN JSON TELEMETRY for Solana token: {token_address}
 
---- Extracted Technical Metrics & Live On-Chain Telemetry ---
+--- Extracted Clean Telemetry Payload ---
 {tech_data}
 ---
 
-MULTI-VECTOR TECHNICAL EVALUATION CRITERIA:
+RIGOROUS DYNAMIC SCORING MATRIX (Start at 70 points Baseline — NOT 100):
 1. CONTRACT AUTHORITIES & SECURITY CONTROLS:
-   - Mint Authority: Active = 50 pts deduction (Token inflation / unlimited supply rug risk).
-   - Freeze Authority: Active = 50 pts deduction (Honeypot / wallet freezing risk).
-   - LP Burned %: < 80% = 30 pts deduction (Rugpull liquidity extraction risk).
-   - Top 10 Holder Concentration: > 40% = 20 pts deduction (Whale dump vulnerability).
+   - Mint Authority Active: Immediate -50 pts -> Verdict MUST be CRITICAL_RUG_RISK!
+   - Freeze Authority Active: Immediate -50 pts -> Verdict MUST be CRITICAL_RUG_RISK!
+   - LP Burned %: < 50% = -40 pts; 50-80% = -20 pts; >= 95% = +5 pts.
 
-2. LIQUIDITY DEPTH & MARKET STRUCTURE:
-   - Liquidity USD: < $10,000 = 30 pts deduction (Flash crash / low depth danger).
-   - Liquidity / FDV Depth %: < 5% = 25 pts deduction (Extreme slippage & price manipulation vulnerability).
-   - Volume / Liquidity Ratio: > 4.0x = 20 pts deduction (Wash trading / high slippage volatility).
+2. SMART MONEY RADAR & BUY/SELL INFLOW VELOCITY (txns_24h_buys vs txns_24h_sells):
+   - Buy/Sell Ratio < 0.8 (Sell Dominance / Whale Dumping): Deduct 25 pts.
+   - Buy/Sell Ratio 0.8 - 1.0 (Neutral/Sell Bias): Deduct 10 pts.
+   - Buy/Sell Ratio > 1.4 (Strong Smart Money Inflow): Add 15 pts.
 
-3. TRANSACTION FLOW & SMART MONEY RADAR:
-   - Buy vs Sell Txn Ratio: Sells > Buys * 1.15 = 25 pts deduction (Whale dumping outflow pressure).
-   - Price Fluctuation (1h / 24h): < -20% = 20 pts deduction (Dump in progress).
+3. LIQUIDITY DEPTH & MARKET STRUCTURE (liquidity_usd, fdv_usd):
+   - Liquidity USD < $10,000: Deduct 30 pts (Micro depth flash crash risk).
+   - Liquidity USD < $30,000: Deduct 15 pts.
+   - Liquidity USD > $100,000: Add 10 pts.
+   - Liquidity / FDV Depth % < 5%: Deduct 20 pts (Paper thin liquidity — extreme slippage risk).
+   - Volume / Liquidity Ratio > 4.0x: Deduct 20 pts (Wash trading / high volatility).
 
-STRICT VERDICT CLASSIFICATION:
-- SAFE_TO_TRADE (Score 80-100): Mint & Freeze disabled, healthy liquidity depth (>10%), strong buy accumulation, zero critical flags.
-- HIGH_VOLATILITY_WARN (Score 50-79): Volatile price swings, sell dominance, low liquidity depth (<10%), or elevated volume slippage.
-- CRITICAL_RUG_RISK (Score 0-49): Active Mint or Freeze authority, zero liquidity, or severe honeypot threat.
+4. PRICE TRAJECTORY (price_change_24h_pct):
+   - 24h Price Change < -20%: Deduct 20 pts (Dump in progress).
+   - 24h Price Change < -5%: Deduct 10 pts.
+
+VERDICT CLASSIFICATION:
+- SAFE_TO_TRADE (Score 80-100): Zero active authorities, LP burned > 90%, strong smart money buy pressure, deep liquidity.
+- HIGH_VOLATILITY_WARN (Score 50-79): Moderate liquidity, negative price trajectory, sell dominance, or high volume slippage.
+- CRITICAL_RUG_RISK (Score 0-49): Active Mint/Freeze authority, unlocked LP, or severe dump outflow.
 
 REQUIREMENT FOR "ai_summary":
-Write an unforgiving, deep-dive 3-4 sentence technical audit report. You MUST explicitly cite exact numbers from the telemetry:
-- Exact Liquidity USD ($...), FDV ($...), Liquidity/FDV depth %, Volume/Liquidity ratio.
-- Exact Buy/Sell transactions (X buys vs Y sells, N.Nx buy/sell ratio).
-- Exact Mint & Freeze authority revocation status and LP burn %.
+Write an unforgiving 3-4 sentence technical diagnosis. You MUST explicitly cite:
+- Exact Liquidity USD ($...), FDV ($...), Buy/Sell txn count (X buys vs Y sells, N.Nx buy/sell ratio).
+- Exact 24h Price Change % and Volume/Liquidity Slippage ratio.
+- Exact Mint/Freeze revocation status and LP Burn %.
 
 Return strictly a single valid JSON object matching this exact schema — no markdown formatting, no extra text:
 {
     "token_address": "{token_address}",
     "token_symbol": "<symbol>",
-    "safety_score": 85,
+    "safety_score": 68,
     "verdict": "<SAFE_TO_TRADE|HIGH_VOLATILITY_WARN|CRITICAL_RUG_RISK>",
     "mint_disabled": true,
     "freeze_disabled": true,
     "lp_burned_pct": 100,
     "top10_holder_pct": 20,
-    "risk_factors": ["explicit technical risk 1", "explicit technical risk 2"],
-    "ai_summary": "Comprehensive 3-4 sentence technical audit report citing exact liquidity USD, FDV depth %, buy/sell txn count, volume slippage ratio, and authority revocation status."
+    "risk_factors": ["explicit risk 1", "explicit risk 2"],
+    "ai_summary": "Unforgiving 3-4 sentence technical audit report citing exact numbers for liquidity, volume, buy/sell ratio, price change %, and contract security controls."
 }
 """
 
@@ -354,23 +360,86 @@ class MemeRugAuditor(gl.Contract):
             top10_pct = tele_security.get("top10_holder_pct", 20) if "top10_holder_pct" in tele_security else security_metrics.get("top10_holder_pct", 20)
             risks = list(tele_security.get("detected_risks", [])) if "detected_risks" in tele_security else list(security_metrics.get("detected_risks", []))
 
-            score = 100
+            liq_val = _safe_float(dex_metrics.get("liquidity_usd"))
+            fdv_val = _safe_float(dex_metrics.get("fdv_usd"))
+            buys_val = _safe_int(dex_metrics.get("txns_24h_buys"))
+            sells_val = _safe_int(dex_metrics.get("txns_24h_sells"))
+            vol_val = _safe_float(dex_metrics.get("volume_24h_usd"))
+            p_chg = _safe_float(dex_metrics.get("price_change_24h_pct"))
+            sentiment = dex_metrics.get("smart_money_sentiment", "NEUTRAL")
+
+            # RIGOROUS SCORING MATRIX: Baseline = 70 points
+            score = 70
+
+            # 1. Authority Controls
             if not mint_dis:
                 score -= 50
-                if "Mint Authority Enabled — Token Inflation Risk" not in risks:
-                    risks.append("Mint Authority Enabled — Token Inflation Risk")
+                if "Mint Authority Active — Inflation Danger" not in risks:
+                    risks.append("Mint Authority Active — Inflation Danger")
             if not freeze_dis:
                 score -= 50
-                if "Freeze Authority Enabled — Honeypot Risk" not in risks:
-                    risks.append("Freeze Authority Enabled — Honeypot Risk")
-            if lp_burned < 80:
-                score -= 30
-                if "Unlocked Liquidity Risk (LP < 80%)" not in risks:
-                    risks.append("Unlocked Liquidity Risk (LP < 80%)")
-            if top10_pct > 40:
+                if "Freeze Authority Active — Honeypot Lock Danger" not in risks:
+                    risks.append("Freeze Authority Active — Honeypot Lock Danger")
+            if lp_burned < 50:
+                score -= 40
+                if "Unlocked Liquidity Warning (LP Burn < 50%)" not in risks:
+                    risks.append("Unlocked Liquidity Warning (LP Burn < 50%)")
+            elif lp_burned < 80:
                 score -= 20
-                if "High Top 10 Holder Concentration (> 40%)" not in risks:
-                    risks.append("High Top 10 Holder Concentration (> 40%)")
+                if "Moderate Unlocked Liquidity (LP Burn < 80%)" not in risks:
+                    risks.append("Moderate Unlocked Liquidity (LP Burn < 80%)")
+            elif lp_burned >= 95:
+                score += 5
+
+            # 2. Smart Money Inflow / Outflow Ratio
+            bs_ratio = buys_val / max(sells_val, 1)
+            if bs_ratio < 0.8:
+                score -= 25
+                if f"Whale Dumping Outflow Pressure ({buys_val} buys vs {sells_val} sells)" not in risks:
+                    risks.append(f"Whale Dumping Outflow Pressure ({buys_val} buys vs {sells_val} sells)")
+            elif bs_ratio < 1.0:
+                score -= 10
+            elif bs_ratio > 1.4:
+                score += 15
+
+            # 3. Liquidity Depth & Market Structure
+            if liq_val < 10000:
+                score -= 30
+                if f"Micro Liquidity Flash Crash Danger (${liq_val:,.0f} USD)" not in risks:
+                    risks.append(f"Micro Liquidity Flash Crash Danger (${liq_val:,.0f} USD)")
+            elif liq_val < 30000:
+                score -= 15
+            elif liq_val > 100000:
+                score += 10
+
+            depth_pct = (liq_val / max(fdv_val, 1.0)) * 100.0 if fdv_val > 0 else 10.0
+            if depth_pct < 5.0:
+                score -= 20
+                if f"Paper Thin Liquidity Depth ({depth_pct:.1f}% FDV)" not in risks:
+                    risks.append(f"Paper Thin Liquidity Depth ({depth_pct:.1f}% FDV)")
+            elif depth_pct > 15.0:
+                score += 5
+
+            # 4. Volume Slippage & Wash Trading Ratio
+            vol_to_liq = vol_val / max(liq_val, 1.0)
+            if vol_to_liq > 4.0:
+                score -= 20
+                if f"Elevated Volume Turnover / Slippage Danger ({vol_to_liq:.1f}x)" not in risks:
+                    risks.append(f"Elevated Volume Turnover / Slippage Danger ({vol_to_liq:.1f}x)")
+            elif vol_to_liq > 2.5:
+                score -= 10
+
+            # 5. Price Trajectory
+            if p_chg < -20.0:
+                score -= 20
+                if f"Heavy 24h Price Downward Spiral ({p_chg:+.1f}%)" not in risks:
+                    risks.append(f"Heavy 24h Price Downward Spiral ({p_chg:+.1f}%)")
+            elif p_chg < -5.0:
+                score -= 10
+            elif p_chg > 10.0:
+                score += 5
+
+            score = max(0, min(100, score))
 
             if score < 50 or not mint_dis or not freeze_dis:
                 verdict = "CRITICAL_RUG_RISK"
@@ -379,24 +448,17 @@ class MemeRugAuditor(gl.Contract):
             else:
                 verdict = "SAFE_TO_TRADE"
 
-            liq_val = _safe_float(dex_metrics.get("liquidity_usd"))
-            buys_val = _safe_int(dex_metrics.get("txns_24h_buys"))
-            sells_val = _safe_int(dex_metrics.get("txns_24h_sells"))
-            vol_val = _safe_float(dex_metrics.get("volume_24h_usd"))
-            p_chg = _safe_float(dex_metrics.get("price_change_24h_pct"))
-            sentiment = dex_metrics.get("smart_money_sentiment", "NEUTRAL")
-
-            rich_ai_summary = f"{symbol} audited via multi-vector GenLayer consensus. Mint authority: {'Disabled (Safe)' if mint_dis else 'Active (Inflation Danger)'}, Freeze authority: {'Disabled (Safe)' if freeze_dis else 'Active (Honeypot Danger)'}. 24h market activity recorded ${liq_val:,.0f} USD liquidity with ${vol_val:,.0f} USD volume ({p_chg:+.1f}% 24h trend). Smart Money sentiment: {sentiment} ({buys_val} buys vs {sells_val} sells)."
+            rich_ai_summary = f"{symbol} audited via multi-vector GenLayer consensus. Mint authority: {'Disabled (Safe)' if mint_dis else 'Active (Inflation Danger)'}, Freeze authority: {'Disabled (Safe)' if freeze_dis else 'Active (Honeypot Danger)'}. 24h market activity recorded ${liq_val:,.0f} USD liquidity with ${vol_val:,.0f} USD volume ({p_chg:+.1f}% 24h trend). Smart Money sentiment: {sentiment} ({buys_val} buys vs {sells_val} sells, {bs_ratio:.2f}x buy pressure)."
 
             return {
                 "token_address": token_address,
                 "token_symbol": symbol,
-                "safety_score": max(0, min(100, score)),
+                "safety_score": score,
                 "verdict": verdict,
                 "mint_disabled": mint_dis,
                 "freeze_disabled": freeze_dis,
-                "lp_burned_pct": 100 if (mint_dis and freeze_dis) else 50,
-                "top10_holder_pct": 20,
+                "lp_burned_pct": lp_burned,
+                "top10_holder_pct": top10_pct,
                 "risk_factors": risks if risks else ["Volatile Meme Market Dynamics"],
                 "ai_summary": rich_ai_summary
             }
