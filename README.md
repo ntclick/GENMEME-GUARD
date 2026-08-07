@@ -71,9 +71,9 @@ py -3.12 -m pytest tests/ -v
 
 ## 🌐 Live GenLayer StudioNet Deployment & Explorer Links
 
-- **Active Intelligent Contract Address**: [`0xcf8B56fc8ec5C1A0bce8E064D4516C49D63fD3eb`](https://explorer-studio.genlayer.com/address/0xcf8B56fc8ec5C1A0bce8E064D4516C49D63fD3eb)
-- **Contract Explorer Link**: [https://explorer-studio.genlayer.com/address/0xcf8B56fc8ec5C1A0bce8E064D4516C49D63fD3eb](https://explorer-studio.genlayer.com/address/0xcf8B56fc8ec5C1A0bce8E064D4516C49D63fD3eb)
-- **Deployment Tx Hash**: `0xeb015f21d1707af428e9ad959c2ccdb691db4f46ea7df6f4589953f8d2c058d1`
+- **Active Intelligent Contract Address**: [`0x95BF2eFBcadf2Ea351edd04dA406855a5aB78BcB`](https://explorer-studio.genlayer.com/address/0x95BF2eFBcadf2Ea351edd04dA406855a5aB78BcB)
+- **Contract Explorer Link**: [https://explorer-studio.genlayer.com/address/0x95BF2eFBcadf2Ea351edd04dA406855a5aB78BcB](https://explorer-studio.genlayer.com/address/0x95BF2eFBcadf2Ea351edd04dA406855a5aB78BcB)
+- **Deployment Tx Hash**: `0xc3bd3bc371f7c05ab8e2248510bd5f5dbe7cd174eabc9996af9e658b9fa1fa96`
 - **GenVM Execution Status**: `SUCCESS`
 - **Consensus Result**: `MAJORITY_AGREE` (ACCEPTED with 5/5 Validator Votes)
 
