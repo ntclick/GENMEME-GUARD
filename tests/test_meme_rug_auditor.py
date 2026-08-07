@@ -273,3 +273,51 @@ def test_run_live_demo_audit(direct_deploy):
     assert report["has_audit"] is True
     assert report["safety_score"] == 100
     assert report["verdict"] == "SAFE_TO_TRADE"
+
+
+def test_run_sgl_token_audit(direct_deploy):
+    print("\n" + "=" * 65)
+    print(" GENMEME GUARD -- RUNNING AUDIT FOR SGL TOKEN (5c4HyD...)")
+    print("=" * 65)
+    contract = direct_deploy("contracts/meme_rug_auditor.py")
+    sgl_ca = "5c4HyD2rSShqnTsf5z3SaoD2H3GE452u2CUuYjviBAGS"
+
+    sgl_telemetry = json.dumps({
+        "token_symbol": "SGL",
+        "token_name": "Solana GenLayer",
+        "price_usd": "0.15",
+        "market_cap_usd": 15000000.0,
+        "fdv_usd": 15000000.0,
+        "liquidity_usd": 1250000.0,
+        "volume_24h_usd": 3400000.0,
+        "price_change_24h_pct": 12.4,
+        "txns_24h_buys": 3200,
+        "txns_24h_sells": 2100,
+        "holder_count": 24500,
+        "smart_money_wallets": 28,
+        "top10_holder_pct": 22,
+        "mint_disabled": True,
+        "freeze_disabled": True,
+        "lp_burned_pct": 100,
+        "detected_risks": []
+    })
+
+    print(f"[*] Executing audit_token for SGL ({sgl_ca})...")
+    contract.audit_token(sgl_ca, request_id="req_pytest_sgl_demo_1", payment_amount=1000, telemetry_json=sgl_telemetry)
+
+    report = contract.get_audit(sgl_ca)
+    print("\n" + "=" * 65)
+    print(" SGL TOKEN ON-CHAIN AUDIT CONSENSUS RESULT:")
+    print("=" * 65)
+    print(json.dumps(report, indent=2))
+    print("=" * 65)
+    print(f"Safety Score:   {report.get('safety_score')}/100")
+    print(f"Threat Verdict:  {report.get('verdict')}")
+    print(f"Mint Revoked:   {report.get('mint_disabled')}")
+    print(f"Freeze Revoked: {report.get('freeze_disabled')}")
+    print(f"AI Summary:     {report.get('ai_summary')}")
+    print("=" * 65 + "\n")
+    assert report["has_audit"] is True
+    assert report["token_address"] == sgl_ca
+    assert report["token_symbol"] == "SGL"
+    assert report["verdict"] == "SAFE_TO_TRADE"
