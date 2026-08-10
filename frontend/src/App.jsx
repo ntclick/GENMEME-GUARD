@@ -145,15 +145,22 @@ const TERMINAL_FAILURE_STATUSES = {
 
 // Poll GenLayer StudioNet RPC for true consensus finality status (FINALIZED / ACCEPTED)
 async function waitForStudioNetReceipt(txHash, onStatusUpdate) {
+  let consecutiveErrors = 0;
   for (let i = 0; i < 40; i++) {
     try {
-      const res = await fetch(`${STUDIONET_RPC_URL}?_nocache=${Date.now()}_${i}`, {
+      // Deliberately no cache-busting query string and no Cache-Control /
+      // Pragma headers. Both are redundant — `cache: 'no-store'` already stops
+      // the browser reusing a response, and the endpoint answers
+      // cf-cache-status: DYNAMIC — while actively hurting: a unique URL per
+      // poll defeats the CORS preflight cache (the API advertises
+      // access-control-max-age: 600), and the extra headers widen the
+      // preflight, so every poll paid for its own OPTIONS round trip instead
+      // of reusing one for the whole run.
+      const res = await fetch(STUDIONET_RPC_URL, {
         method: 'POST',
         cache: 'no-store',
         headers: {
-          'Content-Type': 'application/json',
-          'Cache-Control': 'no-cache, no-store, must-revalidate',
-          'Pragma': 'no-cache'
+          'Content-Type': 'application/json'
         },
         body: JSON.stringify({
           jsonrpc: '2.0',
@@ -164,6 +171,7 @@ async function waitForStudioNetReceipt(txHash, onStatusUpdate) {
       });
       const json = await res.json();
       const status = (json && json.result) ? String(json.result).toUpperCase() : '';
+      consecutiveErrors = 0;
 
       if (status === 'FINALIZED' || status === 'ACCEPTED' || status === 'SUCCESS') {
         if (onStatusUpdate) onStatusUpdate(`Consensus FINALIZED on-chain — block state committed.`);
@@ -179,7 +187,19 @@ async function waitForStudioNetReceipt(txHash, onStatusUpdate) {
         if (onStatusUpdate) onStatusUpdate(`GenLayer consensus status: ${status}...`);
       }
     } catch (e) {
-      console.warn('RPC Status polling error:', e);
+      // The StudioNet endpoint intermittently drops a request or answers
+      // without CORS headers. One failure means nothing — the consensus round
+      // is still running server-side — but a run of them means the user is
+      // staring at a status line that stopped updating, so say so rather than
+      // spinning silently until the loop gives up.
+      consecutiveErrors += 1;
+      console.warn(`RPC status poll failed (${consecutiveErrors} in a row):`, e);
+      if (consecutiveErrors >= 3 && onStatusUpdate) {
+        onStatusUpdate(
+          `Network unstable — cannot reach StudioNet RPC (${consecutiveErrors} failed checks). ` +
+          `The consensus round is unaffected and still running; retrying...`
+        );
+      }
     }
     await new Promise(r => setTimeout(r, 2500));
   }
@@ -470,44 +490,27 @@ export default function App() {
         setAuditStatusText(`Confirm the GenLayer call in your MetaMask popup (StudioNet is gasless)...`);
 
         try {
-          // Attempt 1: Standard genClient.writeContract
+          // `account` must be an object: genlayer-js reads senderAccount.address
+          // off whatever is passed here and hands the rest of the signing to the
+          // injected wallet. Passing the bare address string made it read
+          // `"0x...".address` — undefined — so every audit threw
+          // InvalidAddressError before a retry quietly papered over it.
           txHash = await genClient.writeContract({
             address: contractAddress,
             functionName: 'audit_token',
             args: [tokenAddress, uniqueRequestId, 1000, telemetryPayload],
-            account: senderAddr
+            account: { address: senderAddr }
           });
-        } catch (err1) {
-          console.warn('Attempt 1 (string account) failed:', err1);
-          try {
-            // Attempt 2: Object account
-            txHash = await genClient.writeContract({
-              address: contractAddress,
-              functionName: 'audit_token',
-              args: [tokenAddress, uniqueRequestId, 1000, telemetryPayload],
-              account: { address: senderAddr }
-            });
-          } catch (err2) {
-            console.warn('Attempt 2 (object account) failed:', err2);
-            try {
-              // Attempt 3: No account param (rely on window.ethereum provider)
-              txHash = await genClient.writeContract({
-                address: contractAddress,
-                functionName: 'audit_token',
-                args: [tokenAddress, uniqueRequestId, 1000, telemetryPayload]
-              });
-            } catch (err3) {
-              console.error('All writeContract attempts failed:', err3);
-              const errMsg = err3?.message || err2?.message || err1?.message || 'Transaction failed';
-              if (errMsg.includes('rejected') || err3?.code === 4001 || err2?.code === 4001) {
-                setAuditStatusText('Transaction signing was rejected in MetaMask.');
-              } else {
-                setAuditStatusText(`MetaMask / RPC error: ${errMsg.slice(0, 120)}`);
-              }
-              setIsAuditing(false);
-              return;
-            }
+        } catch (err) {
+          console.error('writeContract failed:', err);
+          const errMsg = err?.message || 'Transaction failed';
+          if (errMsg.includes('rejected') || err?.code === 4001) {
+            setAuditStatusText('Transaction signing was rejected in MetaMask.');
+          } else {
+            setAuditStatusText(`MetaMask / RPC error: ${errMsg.slice(0, 160)}`);
           }
+          setIsAuditing(false);
+          return;
         }
       }
 
