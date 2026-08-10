@@ -1,39 +1,28 @@
 import React, { useState, useEffect } from 'react';
 import { createClient, chains } from 'genlayer-js';
-import { 
-  ShieldCheck, 
-  ShieldAlert, 
-  Flame, 
-  Lock, 
-  Unlock, 
-  Users, 
-  TrendingUp, 
-  Activity, 
-  Search, 
-  Cpu, 
-  RefreshCw, 
-  ExternalLink, 
-  AlertTriangle, 
-  CheckCircle2, 
-  BarChart3, 
-  Database, 
-  FileCode,
-  Sliders,
-  DollarSign,
+import {
+  ShieldCheck,
+  ShieldAlert,
+  Lock,
+  Unlock,
   Wallet,
+  Sliders,
+  ExternalLink,
+  FileCode,
+  Search,
+  Cpu,
+  RefreshCw,
+  Activity,
   Zap,
-  TrendingDown,
-  ThumbsUp,
-  ThumbsDown,
-  AlertCircle,
   Coins,
-  Clock,
-  Layers,
+  DollarSign,
   Percent,
+  TrendingUp,
+  Clock,
+  Database,
   Sparkles,
-  ArrowRight,
-  Eye,
-  Check,
+  CheckCircle2,
+  AlertTriangle,
   Award
 } from 'lucide-react';
 
@@ -161,7 +150,7 @@ async function waitForStudioNetReceipt(txHash, onStatusUpdate) {
       const res = await fetch(`${STUDIONET_RPC_URL}?_nocache=${Date.now()}_${i}`, {
         method: 'POST',
         cache: 'no-store',
-        headers: { 
+        headers: {
           'Content-Type': 'application/json',
           'Cache-Control': 'no-cache, no-store, must-revalidate',
           'Pragma': 'no-cache'
@@ -177,17 +166,17 @@ async function waitForStudioNetReceipt(txHash, onStatusUpdate) {
       const status = (json && json.result) ? String(json.result).toUpperCase() : '';
 
       if (status === 'FINALIZED' || status === 'ACCEPTED' || status === 'SUCCESS') {
-        if (onStatusUpdate) onStatusUpdate(`✅ Consensus FINALIZED on-chain! Block state committed.`);
+        if (onStatusUpdate) onStatusUpdate(`Consensus FINALIZED on-chain — block state committed.`);
         return { ok: true, status };
       } else if (TERMINAL_FAILURE_STATUSES[status]) {
-        if (onStatusUpdate) onStatusUpdate(`❌ ${TERMINAL_FAILURE_STATUSES[status]}`);
+        if (onStatusUpdate) onStatusUpdate(TERMINAL_FAILURE_STATUSES[status]);
         return { ok: false, status };
       } else if (status === 'PROPOSING') {
-        if (onStatusUpdate) onStatusUpdate(`🤖 GenLayer LLM Consensus: PROPOSING... (Multi-validator LLMs evaluating token Web APIs)`);
+        if (onStatusUpdate) onStatusUpdate(`GenLayer consensus: PROPOSING — multi-validator LLMs evaluating token data...`);
       } else if (status === 'COMMITTING') {
-        if (onStatusUpdate) onStatusUpdate(`🤖 GenLayer LLM Consensus: COMMITTING... (Finalizing block state on StudioNet)`);
+        if (onStatusUpdate) onStatusUpdate(`GenLayer consensus: COMMITTING — finalizing block state on StudioNet...`);
       } else if (status) {
-        if (onStatusUpdate) onStatusUpdate(`🤖 GenLayer LLM Consensus Status: ${status}...`);
+        if (onStatusUpdate) onStatusUpdate(`GenLayer consensus status: ${status}...`);
       }
     } catch (e) {
       console.warn('RPC Status polling error:', e);
@@ -202,7 +191,7 @@ export default function App() {
   const [tokenAddress, setTokenAddress] = useState(''); // DEFAULT EMPTY SEARCH BAR
   const [activePreset, setActivePreset] = useState('');
   const [showConfig, setShowConfig] = useState(false);
-  
+
   // MetaMask Wallet state
   const [userAccount, setUserAccount] = useState('');
   const [isConnectingWallet, setIsConnectingWallet] = useState(false);
@@ -212,16 +201,16 @@ export default function App() {
   const [sessionRequestIds, setSessionRequestIds] = useState({});
   const [lastTxHash, setLastTxHash] = useState('');
   const [lastRequestId, setLastRequestId] = useState('');
-  
+
   // State for DEXScreener Data
   const [dexData, setDexData] = useState(null);
   const [dexLoading, setDexLoading] = useState(false);
-  
+
   // State for Audit Report (NEVER AUTO-LOAD PAST AUDITS ON SELECT/PAGE LOAD)
   const [auditReport, setAuditReport] = useState(null);
   const [isAuditing, setIsAuditing] = useState(false);
   const [auditStatusText, setAuditStatusText] = useState('');
-  
+
   // Recent audits history directly from contract
   const [recentAudits, setRecentAudits] = useState([]);
   const [totalAudits, setTotalAudits] = useState(0);
@@ -429,7 +418,7 @@ export default function App() {
     // IMMEDIATELY CLEAR STALE AUDIT & ENTER LOADING STATE
     setAuditReport(null);
     setIsAuditing(true);
-    setAuditStatusText(`🦊 Switching MetaMask to GenLayer StudioNet (Chain ID: 61999)...`);
+    setAuditStatusText(`Switching MetaMask to GenLayer StudioNet (Chain ID: 61999)...`);
 
     try {
       await ensureGenLayerNetwork();
@@ -465,8 +454,8 @@ export default function App() {
       const telemetryPayload = JSON.stringify(telemetry);
 
       if (typeof window.ethereum !== 'undefined' && senderAddr) {
-        setAuditStatusText(`🦊 Please confirm GenLayer Call transaction in your MetaMask popup (Fee: 1000 GEN)...`);
-        
+        setAuditStatusText(`Confirm the GenLayer call in your MetaMask popup (fee: 1000 GEN)...`);
+
         try {
           // Attempt 1: Standard genClient.writeContract
           txHash = await genClient.writeContract({
@@ -498,9 +487,9 @@ export default function App() {
               console.error('All writeContract attempts failed:', err3);
               const errMsg = err3?.message || err2?.message || err1?.message || 'Transaction failed';
               if (errMsg.includes('rejected') || err3?.code === 4001 || err2?.code === 4001) {
-                setAuditStatusText('❌ Transaction signing was rejected in MetaMask.');
+                setAuditStatusText('Transaction signing was rejected in MetaMask.');
               } else {
-                setAuditStatusText(`❌ MetaMask / RPC Error: ${errMsg.slice(0, 120)}`);
+                setAuditStatusText(`MetaMask / RPC error: ${errMsg.slice(0, 120)}`);
               }
               setIsAuditing(false);
               return;
@@ -514,31 +503,31 @@ export default function App() {
         setLastRequestId(uniqueRequestId);
         setSessionTxHashes(prev => ({ ...prev, [tokenAddress]: txHash }));
         setSessionRequestIds(prev => ({ ...prev, [tokenAddress]: uniqueRequestId }));
-        setAuditStatusText(`🤖 GenLayer LLM Consensus in progress... PROPOSING (Multi-validator voting on StudioNet)...`);
+        setAuditStatusText(`GenLayer LLM consensus in progress — PROPOSING (multi-validator voting on StudioNet)...`);
 
         // Poll GenLayer StudioNet RPC for true consensus finality status (FINALIZED / ACCEPTED)
         const receipt = await waitForStudioNetReceipt(txHash, (statusMsg) => setAuditStatusText(statusMsg));
         if (receipt.ok) {
-          setAuditStatusText('📥 Consensus FINALIZED! Reading fresh on-chain FINALIZED LLM verdict...');
+          setAuditStatusText('Consensus finalized — reading fresh on-chain LLM verdict...');
           await new Promise(r => setTimeout(r, 1500));
           const loaded = await loadAuditFromChain(tokenAddress, uniqueRequestId);
           if (loaded) {
-            setAuditStatusText('✅ Fresh On-Chain FINALIZED AI Audit Consensus Completed!');
+            setAuditStatusText('Fresh on-chain AI audit consensus completed.');
             loadOverviewFromChain();
             return;
           }
         } else if (TERMINAL_FAILURE_STATUSES[receipt.status]) {
-          setAuditStatusText(`❌ No audit stored — ${TERMINAL_FAILURE_STATUSES[receipt.status]}`);
+          setAuditStatusText(`No audit stored — ${TERMINAL_FAILURE_STATUSES[receipt.status]}`);
           return;
         }
 
         // Additional polling fallback for state propagation
         for (let i = 0; i < 10; i++) {
-          setAuditStatusText(`📥 Reading GenLayer StudioNet RPC on-chain FINALIZED state (${i + 1}/10)...`);
+          setAuditStatusText(`Reading GenLayer StudioNet finalized state (${i + 1}/10)...`);
           await new Promise(r => setTimeout(r, 2500));
           const loaded = await loadAuditFromChain(tokenAddress, uniqueRequestId);
           if (loaded) {
-            setAuditStatusText('✅ Fresh On-Chain FINALIZED AI Audit Consensus Completed!');
+            setAuditStatusText('Fresh on-chain AI audit consensus completed.');
             loadOverviewFromChain();
             return;
           }
@@ -547,16 +536,16 @@ export default function App() {
         // The audit fails closed: a reverted round stores nothing, so an empty
         // read after finality is a rejected audit, not a propagation delay.
         setAuditStatusText(
-          '❌ No audit was stored on-chain. The contract refuses to write a report when live ' +
+          'No audit was stored on-chain. The contract refuses to write a report when live ' +
           'market or mint/freeze authority data is unavailable, or when the LLM consensus round ' +
           'fails validation. Check the transaction on the explorer for the exact reason.'
         );
       } else {
-        setAuditStatusText('❌ Please connect your MetaMask wallet to send transactions.');
+        setAuditStatusText('Please connect your MetaMask wallet to send transactions.');
       }
     } catch (e) {
       console.error('Audit failed:', e);
-      setAuditStatusText(`❌ Audit error: ${e?.message || e}`);
+      setAuditStatusText(`Audit error: ${e?.message || e}`);
     } finally {
       setIsAuditing(false);
     }
@@ -565,75 +554,51 @@ export default function App() {
   const getVerdictBadge = (verdict) => {
     switch (verdict) {
       case 'SAFE_TO_TRADE':
-        return <span className="badge badge-safe"><ShieldCheck size={16} /> SAFE TO TRADE</span>;
+        return <span className="badge badge-safe"><ShieldCheck size={13} /> SAFE TO TRADE</span>;
       case 'HIGH_VOLATILITY_WARN':
-        return <span className="badge badge-warn"><AlertTriangle size={16} /> HIGH VOLATILITY WARN</span>;
+        return <span className="badge badge-warn"><AlertTriangle size={13} /> HIGH VOLATILITY</span>;
       case 'CRITICAL_RUG_RISK':
-        return <span className="badge badge-critical"><ShieldAlert size={16} /> CRITICAL RUG RISK</span>;
+        return <span className="badge badge-critical"><ShieldAlert size={13} /> CRITICAL RISK</span>;
       default:
         return <span className="badge badge-warn">UNKNOWN</span>;
     }
   };
 
-  // Render High-Contrast Actionable Buy Decision Banner with Strict Tier Rules:
-  // 1. Score >= 80 (GREEN)
-  // 2. Score 50 - 79 (YELLOW)
-  // 3. Score < 50 (RED)
+  // Render an actionable verdict banner with strict tier rules:
+  // 1. Score >= 80 -> safe
+  // 2. Score 50-79 -> warning
+  // 3. Score < 50 -> critical
   const renderBuyDecisionBanner = (score, verdict) => {
     if (score >= 80 || verdict === 'SAFE_TO_TRADE') {
       return (
-        <div style={{ background: 'linear-gradient(135deg, rgba(0, 255, 157, 0.18), rgba(0, 240, 255, 0.12))', padding: '1.1rem 1.3rem', borderRadius: '14px', border: '1px solid rgba(0, 255, 157, 0.5)', marginBottom: '1.25rem', display: 'flex', alignItems: 'center', gap: '1rem', boxShadow: '0 0 20px rgba(0, 255, 157, 0.15)' }}>
-          <div style={{ background: 'var(--neon-green)', padding: '0.6rem', borderRadius: '12px', display: 'flex', color: '#070a12' }}>
-            <ThumbsUp size={24} strokeWidth={2.5} />
-          </div>
+        <div className="verdict-banner verdict-safe">
+          <div className="icon"><ShieldCheck size={18} strokeWidth={2.5} /></div>
           <div>
-            <div style={{ fontSize: '0.8rem', textTransform: 'uppercase', letterSpacing: '0.06em', color: 'var(--neon-green)', fontWeight: '800' }}>
-              BUY RECOMMENDATION DECISION
-            </div>
-            <div style={{ fontSize: '1.1rem', fontWeight: '800', color: '#ffffff' }}>
-              RECOMMENDED ENTRY — LOW RUG RISK
-            </div>
-            <div style={{ fontSize: '0.84rem', color: 'var(--text-muted)', marginTop: '0.15rem' }}>
-              Mint & Freeze authorities disabled. Liquidity & buy pressure support trading safety.
-            </div>
+            <div className="eyebrow">Buy recommendation</div>
+            <div className="headline">Recommended entry — low rug risk</div>
+            <div className="detail">Mint &amp; freeze authorities disabled. Liquidity and buy pressure support trading safety.</div>
           </div>
         </div>
       );
     } else if (score >= 50 || verdict === 'HIGH_VOLATILITY_WARN') {
       return (
-        <div style={{ background: 'linear-gradient(135deg, rgba(255, 184, 0, 0.2), rgba(255, 120, 0, 0.15))', padding: '1.1rem 1.3rem', borderRadius: '14px', border: '1px solid rgba(255, 184, 0, 0.6)', marginBottom: '1.25rem', display: 'flex', alignItems: 'center', gap: '1rem', boxShadow: '0 0 20px rgba(255, 184, 0, 0.2)' }}>
-          <div style={{ background: 'var(--neon-yellow)', padding: '0.6rem', borderRadius: '12px', display: 'flex', color: '#070a12' }}>
-            <AlertTriangle size={24} strokeWidth={2.5} />
-          </div>
+        <div className="verdict-banner verdict-warn">
+          <div className="icon"><AlertTriangle size={18} strokeWidth={2.5} /></div>
           <div>
-            <div style={{ fontSize: '0.8rem', textTransform: 'uppercase', letterSpacing: '0.06em', color: 'var(--neon-yellow)', fontWeight: '800' }}>
-              BUY RECOMMENDATION DECISION — VOLATILITY WARNING
-            </div>
-            <div style={{ fontSize: '1.1rem', fontWeight: '800', color: '#ffffff' }}>
-              PROCEED WITH CAUTION — HIGH VOLATILITY MEME COIN
-            </div>
-            <div style={{ fontSize: '0.84rem', color: 'var(--text-muted)', marginTop: '0.15rem' }}>
-              High 1h-24h price swing or sell volume spike detected. Exercise strict risk management!
-            </div>
+            <div className="eyebrow">Buy recommendation — volatility warning</div>
+            <div className="headline">Proceed with caution</div>
+            <div className="detail">Elevated price swings or sell volume spikes detected. Use strict risk management.</div>
           </div>
         </div>
       );
     } else {
       return (
-        <div className="pulse-border-risk" style={{ background: 'linear-gradient(135deg, rgba(255, 42, 109, 0.25), rgba(255, 0, 60, 0.18))', padding: '1.1rem 1.3rem', borderRadius: '14px', border: '2px solid var(--neon-pink)', marginBottom: '1.25rem', display: 'flex', alignItems: 'center', gap: '1rem', boxShadow: '0 0 30px rgba(255, 42, 109, 0.4)' }}>
-          <div style={{ background: 'var(--neon-pink)', padding: '0.6rem', borderRadius: '12px', display: 'flex', color: '#ffffff', boxShadow: '0 0 15px #ff2a6d' }}>
-            <ShieldAlert size={26} strokeWidth={2.5} />
-          </div>
+        <div className="verdict-banner verdict-critical">
+          <div className="icon"><ShieldAlert size={18} strokeWidth={2.5} /></div>
           <div>
-            <div style={{ fontSize: '0.8rem', textTransform: 'uppercase', letterSpacing: '0.06em', color: 'var(--neon-pink)', fontWeight: '900', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
-              <AlertTriangle size={15} /> CRITICAL WARNING — EXTREME RUGPULL DANGER
-            </div>
-            <div style={{ fontSize: '1.1rem', fontWeight: '900', color: '#ffffff' }}>
-              DO NOT BUY — HONEYPOT OR INFLATION RUG RISK
-            </div>
-            <div style={{ fontSize: '0.84rem', color: '#ffb3c6', marginTop: '0.15rem', fontWeight: '600' }}>
-              Score below 50, active Mint/Freeze, or unburned LP. High probability of financial loss!
-            </div>
+            <div className="eyebrow">Critical warning</div>
+            <div className="headline">Do not buy — honeypot or inflation risk</div>
+            <div className="detail">Score below 50, an active mint/freeze authority, or unburned LP. High probability of loss.</div>
           </div>
         </div>
       );
@@ -641,23 +606,23 @@ export default function App() {
   };
 
   const getGaugeColor = (score, verdict) => {
-    if (score >= 80 || verdict === 'SAFE_TO_TRADE') return '#00ff9d'; // Green (>= 80)
-    if (score >= 50 || verdict === 'HIGH_VOLATILITY_WARN') return '#ffb800'; // Yellow (50 - 79)
-    return '#ff2a6d'; // Red (< 50)
+    if (score >= 80 || verdict === 'SAFE_TO_TRADE') return '#22c55e';
+    if (score >= 50 || verdict === 'HIGH_VOLATILITY_WARN') return '#f5a623';
+    return '#ef4444';
   };
 
   // Smart Money & Whale Sentiment Detector
   const getSmartMoneySignal = () => {
-    if (!dexData || !dexData.txns?.h24) return { label: 'NEUTRAL SENTIMENT', color: 'var(--neon-yellow)', text: 'Balanced Buy/Sell Activity', netRatio: '1.0x' };
+    if (!dexData || !dexData.txns?.h24) return { label: 'Neutral sentiment', color: '#6366f1', text: 'Balanced buy/sell activity', netRatio: '1.0x' };
     const buys = dexData.txns.h24.buys || 0;
     const sells = dexData.txns.h24.sells || 0;
     const ratio = sells > 0 ? (buys / sells).toFixed(2) : '1.0';
     if (buys > sells * 1.15) {
-      return { label: 'SMART MONEY ACCUMULATING (BUYING)', color: 'var(--neon-green)', text: `Inflow: ${buys} buys vs ${sells} sells`, netRatio: `${ratio}x Buy Pressure` };
+      return { label: 'Smart money accumulating', color: '#22c55e', text: `Inflow: ${buys} buys vs ${sells} sells`, netRatio: `${ratio}x buy pressure` };
     } else if (sells > buys * 1.15) {
-      return { label: 'WHALE SELLING PRESSURE (DUMPING)', color: 'var(--neon-pink)', text: `Outflow: ${sells} sells vs ${buys} buys`, netRatio: `${(sells / (buys || 1)).toFixed(2)}x Dump Pressure` };
+      return { label: 'Whale selling pressure', color: '#ef4444', text: `Outflow: ${sells} sells vs ${buys} buys`, netRatio: `${(sells / (buys || 1)).toFixed(2)}x dump pressure` };
     }
-    return { label: 'SIDEWAYS RANGE', color: 'var(--neon-cyan)', text: `Equilibrium: ${buys} buys / ${sells} sells`, netRatio: '1.0x Balanced' };
+    return { label: 'Sideways range', color: '#6366f1', text: `Equilibrium: ${buys} buys / ${sells} sells`, netRatio: '1.0x balanced' };
   };
 
   const smartMoney = getSmartMoneySignal();
@@ -669,80 +634,60 @@ export default function App() {
   const activeTxHash = lastTxHash || (tokenAddress ? sessionTxHashes[tokenAddress] : '');
 
   return (
-    <div className="container">
-      {/* Navigation Bar Header */}
-      <header className="glass-card" style={{ padding: '1.25rem 1.75rem', marginBottom: '2rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '1rem' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '0.85rem' }}>
-          <div style={{ background: 'linear-gradient(135deg, #00f0ff, #00ff9d)', padding: '0.6rem', borderRadius: '12px', display: 'flex', boxShadow: '0 0 15px rgba(0, 240, 255, 0.4)' }}>
-            <ShieldCheck size={28} color="#070a12" strokeWidth={2.5} />
-          </div>
+    <div className="page">
+      {/* ---------- Topbar ---------- */}
+      <header className="topbar">
+        <div className="brand">
+          <div className="brand-mark"><ShieldCheck size={20} strokeWidth={2.5} /></div>
           <div>
-            <h1 style={{ fontSize: '1.5rem', fontWeight: '900', letterSpacing: '-0.02em', background: 'linear-gradient(90deg, #ffffff, #00f0ff, #00ff9d)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}>
-              GENMEME GUARD
-            </h1>
-            <p style={{ fontSize: '0.82rem', color: 'var(--text-muted)', fontWeight: '600' }}>
-              Solana Meme Rug Inspector — DEXScreener & Birdeye AI Consensus
-            </p>
+            <div className="brand-name">GenMeme Guard</div>
+            <div className="brand-sub">Solana rug inspector — GenLayer LLM consensus</div>
           </div>
         </div>
 
-        <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', flexWrap: 'wrap' }}>
-          {/* MetaMask Wallet Connection Button */}
+        <div className="topbar-actions">
           {userAccount ? (
-            <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', background: 'rgba(0, 255, 157, 0.1)', padding: '0.45rem 0.85rem', borderRadius: '10px', border: '1px solid rgba(0, 255, 157, 0.3)', color: 'var(--neon-green)', fontSize: '0.82rem', fontFamily: 'var(--font-mono)', fontWeight: '600' }}>
-              <Wallet size={15} />
-              <span>{userAccount.slice(0, 6)}...{userAccount.slice(-4)}</span>
+            <div className="tag">
+              <Wallet size={13} />
+              {userAccount.slice(0, 6)}...{userAccount.slice(-4)}
             </div>
           ) : (
-            <button 
-              className="btn-primary"
-              onClick={connectMetaMask}
-              disabled={isConnectingWallet}
-              style={{ padding: '0.45rem 0.9rem', fontSize: '0.82rem', display: 'inline-flex', alignItems: 'center', gap: '0.4rem', background: 'linear-gradient(135deg, #f6851b, #e2761b)', boxShadow: '0 0 15px rgba(246, 133, 27, 0.4)' }}
-            >
-              <Wallet size={15} />
-              <span>{isConnectingWallet ? 'Connecting...' : 'Connect MetaMask'}</span>
+            <button className="btn btn-primary" onClick={connectMetaMask} disabled={isConnectingWallet}>
+              <Wallet size={14} />
+              {isConnectingWallet ? 'Connecting...' : 'Connect wallet'}
             </button>
           )}
 
-          <button 
-            className="btn-outline" 
-            onClick={() => setShowConfig(!showConfig)}
-            style={{ fontSize: '0.82rem', padding: '0.45rem 0.85rem', display: 'inline-flex', alignItems: 'center', gap: '0.4rem' }}
-          >
-            <Sliders size={15} color="var(--neon-cyan)" />
-            <span>Settings</span>
+          <button className="btn btn-ghost" onClick={() => setShowConfig(!showConfig)}>
+            <Sliders size={14} />
+            Settings
           </button>
 
-          <a 
+          <a
             href={activeTxHash ? `${EXPLORER_BASE_URL}/tx/${activeTxHash}` : `${EXPLORER_BASE_URL}/address/${contractAddress}`}
-            target="_blank" 
+            target="_blank"
             rel="noreferrer"
-            className="btn-outline"
-            style={{ fontSize: '0.82rem', padding: '0.45rem 0.85rem', display: 'inline-flex', alignItems: 'center', gap: '0.4rem', border: '1px solid rgba(0, 240, 255, 0.4)', color: 'var(--neon-cyan)' }}
+            className="btn btn-ghost"
           >
-            <FileCode size={15} color="var(--neon-cyan)" />
-            <span>{activeTxHash ? 'Tx Explorer' : 'Explorer'}</span>
-            <ExternalLink size={13} />
+            <FileCode size={14} />
+            {activeTxHash ? 'Tx explorer' : 'Explorer'}
+            <ExternalLink size={12} />
           </a>
 
-          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', background: 'rgba(255, 255, 255, 0.04)', padding: '0.45rem 0.85rem', borderRadius: '20px', border: '1px solid rgba(0, 255, 157, 0.3)' }}>
-            <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: 'var(--neon-green)', display: 'inline-block', boxShadow: '0 0 8px #00ff9d' }}></span>
-            <span style={{ fontSize: '0.82rem', fontWeight: '600', color: 'var(--text-muted)' }}>GenLayer StudioNet (61999)</span>
+          <div className="network-pill">
+            <span className="status-dot" />
+            StudioNet · 61999
           </div>
         </div>
       </header>
 
-      {/* Expandable Contract Address Config */}
+      {/* ---------- Contract config ---------- */}
       {showConfig && (
-        <section className="glass-card" style={{ padding: '1.2rem 1.75rem', marginBottom: '2rem', background: 'rgba(0, 240, 255, 0.04)', border: '1px solid rgba(0, 240, 255, 0.25)' }}>
-          <div style={{ fontSize: '0.88rem', fontWeight: '700', color: 'var(--neon-cyan)', marginBottom: '0.5rem' }}>
-            Target GenLayer Intelligent Contract Address:
-          </div>
-          <input 
-            type="text" 
-            className="search-input"
-            style={{ fontSize: '0.88rem', fontFamily: 'var(--font-mono)' }}
+        <section className="card" style={{ marginBottom: '1.5rem' }}>
+          <div className="section-title" style={{ marginBottom: '0.6rem' }}>Target contract address</div>
+          <input
+            type="text"
+            className="input"
             value={contractAddress}
             onChange={(e) => setContractAddress(e.target.value)}
             placeholder="0x..."
@@ -750,714 +695,431 @@ export default function App() {
         </section>
       )}
 
-      {/* Futuristic Hero Section */}
-      <section className="glass-card" style={{ padding: '2.5rem 2rem', marginBottom: '2rem', textAlign: 'center', background: 'linear-gradient(135deg, rgba(0, 240, 255, 0.08), rgba(157, 78, 221, 0.08))', border: '1px solid rgba(0, 240, 255, 0.3)', position: 'relative', overflow: 'hidden' }}>
-        <div className="hero-badge">
-          <Sparkles size={14} color="var(--neon-cyan)" />
-          GENLAYER INTELLECTUAL CONTRACTS • MULTI-VALIDATOR AI CONSENSUS ENGINE
-        </div>
-        
-        <h1 style={{ fontSize: '2.4rem', fontWeight: '900', letterSpacing: '-0.03em', lineHeight: '1.25', marginBottom: '0.85rem', background: 'linear-gradient(90deg, #ffffff, #00f0ff, #00ff9d)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent', maxWidth: '900px', margin: '0 auto 0.85rem auto' }}>
-          AI-POWERED RUGPULL DEFENSE & SMART MONEY RADAR FOR SOLANA
-        </h1>
-
-        <p style={{ fontSize: '1.02rem', color: 'var(--text-muted)', maxWidth: '780px', margin: '0 auto 2rem auto', lineHeight: '1.6' }}>
-          Instantly inspect any Solana token mint address using multi-source web API telemetry (DEXScreener & Birdeye) 
-          evaluated by GenLayer's BFT Optimistic Democracy consensus validators.
+      {/* ---------- Hero ---------- */}
+      <section className="hero">
+        <div className="hero-eyebrow">GenLayer intelligent contracts · multi-validator AI consensus</div>
+        <h1 className="hero-title">AI-powered rugpull defense for Solana tokens</h1>
+        <p className="hero-sub">
+          Paste any Solana mint address and get a forensic safety audit, evaluated by a real
+          multi-validator LLM consensus round on GenLayer StudioNet — not a static rule engine.
         </p>
 
-        {/* Hero Platform Metrics */}
-        <div className="grid-4" style={{ maxWidth: '960px', margin: '0 auto', textAlign: 'left' }}>
-          <div style={{ background: 'rgba(0, 0, 0, 0.4)', padding: '1rem 1.25rem', borderRadius: '14px', border: '1px solid rgba(0, 255, 157, 0.3)' }}>
-            <div style={{ fontSize: '0.78rem', color: 'var(--text-dim)', textTransform: 'uppercase', letterSpacing: '0.05em', fontWeight: '700', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
-              <ShieldCheck size={14} color="var(--neon-green)" /> On-Chain Audits
-            </div>
-            <div style={{ fontSize: '1.5rem', fontWeight: '900', fontFamily: 'var(--font-mono)', color: 'var(--neon-green)', marginTop: '0.2rem' }}>
-              {totalAudits} Tokens
-            </div>
+        <div className="grid-4" style={{ marginTop: '1.75rem' }}>
+          <div className="metric-tile">
+            <div className="metric-label"><ShieldCheck size={12} /> On-chain audits</div>
+            <div className="metric-value">{totalAudits} tokens</div>
           </div>
-
-          <div style={{ background: 'rgba(0, 0, 0, 0.4)', padding: '1rem 1.25rem', borderRadius: '14px', border: '1px solid rgba(0, 240, 255, 0.3)' }}>
-            <div style={{ fontSize: '0.78rem', color: 'var(--text-dim)', textTransform: 'uppercase', letterSpacing: '0.05em', fontWeight: '700', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
-              <Cpu size={14} color="var(--neon-cyan)" /> Consensus Mode
-            </div>
-            <div style={{ fontSize: '1.2rem', fontWeight: '900', color: 'var(--neon-cyan)', marginTop: '0.3rem' }}>
-              Optimistic BFT
-            </div>
+          <div className="metric-tile">
+            <div className="metric-label"><Cpu size={12} /> Consensus mode</div>
+            <div className="metric-value">Optimistic BFT</div>
           </div>
-
-          <div style={{ background: 'rgba(0, 0, 0, 0.4)', padding: '1rem 1.25rem', borderRadius: '14px', border: '1px solid rgba(255, 184, 0, 0.3)' }}>
-            <div style={{ fontSize: '0.78rem', color: 'var(--text-dim)', textTransform: 'uppercase', letterSpacing: '0.05em', fontWeight: '700', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
-              <Zap size={14} color="var(--neon-yellow)" /> Smart Money Radar
-            </div>
-            <div style={{ fontSize: '1.2rem', fontWeight: '900', color: 'var(--neon-yellow)', marginTop: '0.3rem' }}>
-              Buy/Sell Inflow
-            </div>
+          <div className="metric-tile">
+            <div className="metric-label"><Zap size={12} /> Smart money radar</div>
+            <div className="metric-value">Buy / sell inflow</div>
           </div>
-
-          <div style={{ background: 'rgba(0, 0, 0, 0.4)', padding: '1rem 1.25rem', borderRadius: '14px', border: '1px solid rgba(157, 78, 221, 0.3)' }}>
-            <div style={{ fontSize: '0.78rem', color: 'var(--text-dim)', textTransform: 'uppercase', letterSpacing: '0.05em', fontWeight: '700', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
-              <Lock size={14} color="var(--neon-purple)" /> Security Checks
-            </div>
-            <div style={{ fontSize: '1.2rem', fontWeight: '900', color: 'var(--neon-purple)', marginTop: '0.3rem' }}>
-              Mint / Freeze Revoke
-            </div>
+          <div className="metric-tile">
+            <div className="metric-label"><Lock size={12} /> Security checks</div>
+            <div className="metric-value">Mint / freeze</div>
           </div>
         </div>
       </section>
 
-      {/* Explorer Live Verification Card */}
-      <section className="glass-card" style={{ padding: '1.2rem 1.75rem', marginBottom: '2rem', background: 'linear-gradient(135deg, rgba(0, 240, 255, 0.05), rgba(157, 0, 255, 0.05))', border: '1px solid rgba(0, 240, 255, 0.3)' }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '1rem' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-            <CheckCircle2 size={22} color="var(--neon-green)" />
+      {/* ---------- Live contract state strip ---------- */}
+      <section className="section">
+        <div className="card-flat" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '0.75rem' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.65rem' }}>
+            <CheckCircle2 size={17} color="var(--success)" />
             <div>
-              <div style={{ fontSize: '0.92rem', fontWeight: '700', color: '#ffffff' }}>
-                GenLayer StudioNet Active Contract & Audit State
+              <div style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--text-primary)' }}>
+                StudioNet contract active
               </div>
-              <div style={{ fontSize: '0.8rem', color: 'var(--text-dim)', fontFamily: 'var(--font-mono)' }}>
-                {activeTxHash ? `Audit Tx: ${activeTxHash}` : `Contract: ${contractAddress}`}
+              <div style={{ fontSize: '0.78rem', color: 'var(--text-tertiary)', fontFamily: 'var(--font-mono)' }}>
+                {activeTxHash ? `Audit tx: ${activeTxHash}` : `Contract: ${contractAddress}`}
               </div>
             </div>
           </div>
-
-          <div style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap' }}>
-            {activeTxHash ? (
-              <a 
-                href={`${EXPLORER_BASE_URL}/tx/${activeTxHash}`} 
-                target="_blank" 
-                rel="noreferrer"
-                style={{ fontSize: '0.82rem', padding: '0.45rem 0.9rem', background: 'rgba(0, 255, 157, 0.15)', color: 'var(--neon-green)', borderRadius: '8px', textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: '0.4rem', border: '1px solid rgba(0, 255, 157, 0.4)', fontWeight: '700' }}
-              >
-                View Audit Tx directly on Explorer <ExternalLink size={14} />
-              </a>
-            ) : (
-              <a 
-                href={`${EXPLORER_BASE_URL}/address/${contractAddress}`} 
-                target="_blank" 
-                rel="noreferrer"
-                style={{ fontSize: '0.82rem', padding: '0.45rem 0.9rem', background: 'rgba(0, 240, 255, 0.1)', color: 'var(--neon-cyan)', borderRadius: '8px', textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: '0.4rem', border: '1px solid rgba(0, 240, 255, 0.3)', fontWeight: '600' }}
-              >
-                View On-Chain Contract Explorer <ExternalLink size={14} />
-              </a>
-            )}
-          </div>
-        </div>
-      </section>
-
-      {/* WHY GENMEME GUARD — VALUE PROPOSITION & BENEFITS */}
-      <section className="glass-card" style={{ padding: '2.2rem 2rem', marginBottom: '2.5rem', background: 'linear-gradient(135deg, rgba(15, 23, 42, 0.8), rgba(6, 182, 212, 0.08))', border: '1px solid rgba(0, 240, 255, 0.35)', boxShadow: '0 0 35px rgba(0, 240, 255, 0.1)' }}>
-        <div style={{ textAlign: 'center', marginBottom: '2rem' }}>
-          <div className="hero-badge" style={{ display: 'inline-flex', marginBottom: '0.75rem' }}>
-            <Award size={14} color="var(--neon-green)" /> WHY TRADERS CHOOSE GENMEME GUARD OVER TRADITIONAL SCANNERS
-          </div>
-          <h2 style={{ fontSize: '1.8rem', fontWeight: '900', letterSpacing: '-0.02em', background: 'linear-gradient(90deg, #ffffff, #00f0ff)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}>
-            Unfair Trading Advantages Driven by GenLayer Decentralized AI
-          </h2>
-          <p style={{ fontSize: '0.92rem', color: 'var(--text-muted)', maxWidth: '750px', margin: '0.5rem auto 0 auto' }}>
-            Traditional scanners use superficial static rules that assign fake 100/100 scores to micro-cap scam coins. 
-            GenMeme Guard protects your capital with institutional multi-vector AI analysis and scale-tier ceilings.
-          </p>
-        </div>
-
-        {/* 4 Core Benefit Cards */}
-        <div className="grid-4" style={{ gap: '1.25rem', marginBottom: '2rem' }}>
-          {/* Benefit 1 */}
-          <div className="glass-card" style={{ padding: '1.35rem', border: '1px solid rgba(0, 255, 157, 0.3)', background: 'rgba(0, 255, 157, 0.03)', borderRadius: '16px' }}>
-            <div style={{ background: 'rgba(0, 255, 157, 0.15)', width: '42px', height: '42px', borderRadius: '12px', display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: '1rem', color: 'var(--neon-green)', boxShadow: '0 0 15px rgba(0, 255, 157, 0.2)' }}>
-              <ShieldCheck size={24} />
-            </div>
-            <h3 style={{ fontSize: '1.1rem', fontWeight: '800', color: '#ffffff', marginBottom: '0.4rem' }}>
-              Scale-Tier Cap Ceilings
-            </h3>
-            <p style={{ fontSize: '0.84rem', color: 'var(--text-muted)', lineHeight: '1.5' }}>
-              Micro-cap scam coins (&lt; $100k cap) are hard-capped at <strong>55/100 MAX</strong>. You will never be tricked into buying low-liquidity rugpull traps disguised as safe tokens.
-            </p>
-          </div>
-
-          {/* Benefit 2 */}
-          <div className="glass-card" style={{ padding: '1.35rem', border: '1px solid rgba(0, 240, 255, 0.3)', background: 'rgba(0, 240, 255, 0.03)', borderRadius: '16px' }}>
-            <div style={{ background: 'rgba(0, 240, 255, 0.15)', width: '42px', height: '42px', borderRadius: '12px', display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: '1rem', color: 'var(--neon-cyan)', boxShadow: '0 0 15px rgba(0, 240, 255, 0.2)' }}>
-              <TrendingUp size={24} />
-            </div>
-            <h3 style={{ fontSize: '1.1rem', fontWeight: '800', color: '#ffffff', marginBottom: '0.4rem' }}>
-              Smart Money & Orderbook Radar
-            </h3>
-            <p style={{ fontSize: '0.84rem', color: 'var(--text-muted)', lineHeight: '1.5' }}>
-              Detects real-time buy/sell transaction ratios, holder counts, top 10 concentration, and smart money accumulation before placing your trade.
-            </p>
-          </div>
-
-          {/* Benefit 3 */}
-          <div className="glass-card" style={{ padding: '1.35rem', border: '1px solid rgba(255, 184, 0, 0.3)', background: 'rgba(255, 184, 0, 0.03)', borderRadius: '16px' }}>
-            <div style={{ background: 'rgba(255, 184, 0, 0.15)', width: '42px', height: '42px', borderRadius: '12px', display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: '1rem', color: 'var(--neon-yellow)', boxShadow: '0 0 15px rgba(255, 184, 0, 0.2)' }}>
-              <Zap size={24} />
-            </div>
-            <h3 style={{ fontSize: '1.1rem', fontWeight: '800', color: '#ffffff', marginBottom: '0.4rem' }}>
-              Slippage & Wash-Trading Shield
-            </h3>
-            <p style={{ fontSize: '0.84rem', color: 'var(--text-muted)', lineHeight: '1.5' }}>
-              Identifies fake volume turnover spikes (&gt;4.0x) and thin liquidity depth % to protect you from flash crashes and market maker manipulation.
-            </p>
-          </div>
-
-          {/* Benefit 4 */}
-          <div className="glass-card" style={{ padding: '1.35rem', border: '1px solid rgba(157, 78, 221, 0.3)', background: 'rgba(157, 78, 221, 0.03)', borderRadius: '16px' }}>
-            <div style={{ background: 'rgba(157, 78, 221, 0.15)', width: '42px', height: '42px', borderRadius: '12px', display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: '1rem', color: 'var(--neon-purple)', boxShadow: '0 0 15px rgba(157, 78, 221, 0.2)' }}>
-              <Cpu size={24} />
-            </div>
-            <h3 style={{ fontSize: '1.1rem', fontWeight: '800', color: '#ffffff', marginBottom: '0.4rem' }}>
-              GenLayer Decentralized AI
-            </h3>
-            <p style={{ fontSize: '0.84rem', color: 'var(--text-muted)', lineHeight: '1.5' }}>
-              Audit verdicts are cross-verified by decentralized BFT Optimistic Democracy AI validators and permanently finalized on GenLayer blockchain.
-            </p>
-          </div>
-        </div>
-
-        {/* Traditional Scanners vs GenMeme Guard Comparison Box */}
-        <div style={{ background: 'rgba(7, 10, 18, 0.7)', borderRadius: '16px', padding: '1.5rem', border: '1px solid rgba(255, 255, 255, 0.08)' }}>
-          <div style={{ fontSize: '0.95rem', fontWeight: '800', color: '#ffffff', marginBottom: '1rem', textAlign: 'center', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-            ⚔️ TRADITIONAL SCANNERS VS GENMEME GUARD
-          </div>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '1.25rem' }}>
-            <div style={{ background: 'rgba(255, 42, 109, 0.05)', padding: '1rem 1.25rem', borderRadius: '12px', border: '1px solid rgba(255, 42, 109, 0.25)' }}>
-              <div style={{ fontWeight: '800', color: 'var(--neon-pink)', marginBottom: '0.5rem', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
-                ❌ Traditional Scanners (RugCheck, DEXScreener)
-              </div>
-              <ul style={{ fontSize: '0.82rem', color: 'var(--text-muted)', paddingLeft: '1.1rem', margin: 0, lineHeight: '1.7' }}>
-                <li>Static rules giving 100/100 to worthless micro-cap scam coins</li>
-                <li>Ignores whale sell outflow &amp; insider wallet dumping</li>
-                <li>Centralized API easily misled by fake wash trading volume</li>
-                <li>No scale-tier caps based on market capitalization</li>
-              </ul>
-            </div>
-
-            <div style={{ background: 'rgba(0, 255, 157, 0.05)', padding: '1rem 1.25rem', borderRadius: '12px', border: '1px solid rgba(0, 255, 157, 0.3)' }}>
-              <div style={{ fontWeight: '800', color: 'var(--neon-green)', marginBottom: '0.5rem', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
-                ✅ GenMeme Guard AI Consensus
-              </div>
-              <ul style={{ fontSize: '0.82rem', color: '#e2e8f0', paddingLeft: '1.1rem', margin: 0, lineHeight: '1.7' }}>
-                <li>Hard scale-tier ceilings capping micro-caps at 55/100 MAX</li>
-                <li>Real-time Smart Money radar tracking buy/sell transaction ratios</li>
-                <li>Decentralized multi-validator LLM consensus cross-verification</li>
-                <li>Immutable, tamper-proof audit records stored on GenLayer RPC</li>
-              </ul>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      {/* Main Search & Presets Section */}
-      <section className="glass-card" style={{ padding: '1.75rem', marginBottom: '2rem' }}>
-        <h2 style={{ fontSize: '1.1rem', fontWeight: '800', marginBottom: '1rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-          <Search size={20} color="var(--neon-cyan)" /> Inspect Any Solana Token Mint Address
-        </h2>
-
-        <div style={{ display: 'flex', gap: '1rem', flexWrap: 'wrap', marginBottom: '1.2rem' }}>
-          <div style={{ flex: '1', minWidth: '300px', position: 'relative' }}>
-            <input 
-              type="text" 
-              className="search-input"
-              placeholder="Paste any Solana Mint Address (e.g. 5c4HyD2rSShqnTsf5z3SaoD2H3GE452u2CUuYjviBAGS)..."
-              value={tokenAddress}
-              onChange={(e) => handleSelectToken(e.target.value, '')}
-            />
-          </div>
-
-          <button 
-            className="btn-primary" 
-            onClick={handleTriggerAudit}
-            disabled={isAuditing || !tokenAddress.trim()}
+          <a
+            href={activeTxHash ? `${EXPLORER_BASE_URL}/tx/${activeTxHash}` : `${EXPLORER_BASE_URL}/address/${contractAddress}`}
+            target="_blank"
+            rel="noreferrer"
+            className="link"
           >
-            {isAuditing ? <RefreshCw size={18} className="spinner" /> : <Cpu size={18} />}
-            {isAuditing ? 'Executing On-Chain Audit...' : 'Run 1-Click AI Rug Audit'}
-          </button>
+            {activeTxHash ? 'View audit tx' : 'View contract'} <ExternalLink size={13} />
+          </a>
         </div>
-
-        {/* Quick Presets */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', flexWrap: 'wrap' }}>
-          <span style={{ fontSize: '0.85rem', color: 'var(--text-dim)', fontWeight: '600' }}>Popular Tokens:</span>
-          {PRESET_TOKENS.map((token) => (
-            <button
-              key={token.symbol}
-              className={`preset-chip ${activePreset === token.symbol ? 'active' : ''}`}
-              onClick={() => handleSelectToken(token.address, token.symbol)}
-              disabled={isAuditing}
-            >
-              <Flame size={14} color={activePreset === token.symbol ? 'var(--neon-green)' : 'var(--neon-yellow)'} />
-              {token.symbol} <span style={{ opacity: 0.65, fontSize: '0.75rem' }}>({token.name})</span>
-            </button>
-          ))}
-        </div>
-
-        {/* Status Bar */}
-        {isAuditing && (
-          <div style={{ marginTop: '1.2rem', padding: '0.85rem 1.2rem', background: 'rgba(0, 240, 255, 0.08)', borderRadius: '10px', border: '1px solid rgba(0, 240, 255, 0.25)', color: 'var(--neon-cyan)', fontSize: '0.9rem', display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-            <RefreshCw size={18} className="spinner" />
-            <span style={{ fontFamily: 'var(--font-mono)' }}>{auditStatusText}</span>
-          </div>
-        )}
       </section>
 
-      {/* Grid: DEX Live Ticker + Audit Card */}
-      <div className="grid-2" style={{ marginBottom: '2rem' }}>
-        
-        {/* Left Column: DEXScreener Real-Time Data & Smart Money Radar */}
-        <div className="glass-card" style={{ padding: '1.75rem', display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
-          <div>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.25rem' }}>
-              <h3 style={{ fontSize: '1.1rem', fontWeight: '700', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                <Activity size={20} color="var(--neon-green)" /> DEXScreener & Smart Money Radar
-              </h3>
-              {dexLoading && <RefreshCw size={16} className="spinner" color="var(--text-muted)" />}
+      {/* ---------- Why GenMeme Guard ---------- */}
+      <section className="section">
+        <div className="card">
+          <div style={{ textAlign: 'center', marginBottom: '1.75rem' }}>
+            <div className="hero-eyebrow" style={{ justifyContent: 'center', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+              <Award size={13} /> Why traders choose GenMeme Guard
             </div>
-
-            {dexData ? (
-              <div>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: '1.2rem', paddingBottom: '1rem', borderBottom: '1px solid rgba(255,255,255,0.08)' }}>
-                  <div>
-                    <div style={{ fontSize: '1.4rem', fontWeight: '800' }}>
-                      {dexData.baseToken?.symbol} / {dexData.quoteToken?.symbol}
-                    </div>
-                    <div style={{ fontSize: '0.82rem', color: 'var(--text-muted)' }}>
-                      DEX: {dexData.dexId?.toUpperCase()} • Pair: {dexData.pairAddress?.slice(0, 6)}...{dexData.pairAddress?.slice(-4)}
-                    </div>
-                  </div>
-                  <div style={{ textAlign: 'right' }}>
-                    <div style={{ fontSize: '1.5rem', fontWeight: '800', fontFamily: 'var(--font-mono)', color: 'var(--neon-cyan)' }}>
-                      ${parseFloat(dexData.priceUsd || 0).toLocaleString(undefined, { minimumFractionDigits: 4, maximumFractionDigits: 8 })}
-                    </div>
-                    <div style={{ fontSize: '0.88rem', fontWeight: '700', color: (dexData.priceChange?.h24 || 0) >= 0 ? 'var(--neon-green)' : 'var(--neon-pink)' }}>
-                      {(dexData.priceChange?.h24 || 0) >= 0 ? '▲ +' : '▼ '}
-                      {dexData.priceChange?.h24?.toFixed(2)}% (24h)
-                    </div>
-                  </div>
-                </div>
-
-                {/* Smart Money Signal Card */}
-                <div style={{ background: 'rgba(0, 240, 255, 0.04)', padding: '0.9rem 1.1rem', borderRadius: '12px', border: '1px solid rgba(0, 240, 255, 0.2)', marginBottom: '1rem' }}>
-                  <div style={{ fontSize: '0.78rem', textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--text-dim)', fontWeight: '700', marginBottom: '0.3rem', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                    <span style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
-                      <Zap size={14} color={smartMoney.color} /> Smart Money & Whale Radar Signal:
-                    </span>
-                    <span style={{ color: smartMoney.color, fontFamily: 'var(--font-mono)' }}>{smartMoney.netRatio}</span>
-                  </div>
-                  <div style={{ fontSize: '0.98rem', fontWeight: '800', color: smartMoney.color }}>
-                    {smartMoney.label}
-                  </div>
-                  <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginTop: '0.15rem', fontFamily: 'var(--font-mono)' }}>
-                    {smartMoney.text}
-                  </div>
-                </div>
-
-                {/* Multi-Period Price Fluctuations (5m, 1h, 6h, 24h) */}
-                <div style={{ marginBottom: '1.2rem', background: 'rgba(255,255,255,0.02)', padding: '0.85rem 1rem', borderRadius: '12px', border: '1px solid rgba(255,255,255,0.05)' }}>
-                  <div style={{ fontSize: '0.78rem', color: 'var(--text-dim)', fontWeight: '700', marginBottom: '0.5rem', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
-                    <Clock size={13} color="var(--neon-cyan)" /> Multi-Period Price Trends (5m - 24h):
-                  </div>
-                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '0.5rem', textAlign: 'center' }}>
-                    <div style={{ background: 'rgba(0,0,0,0.3)', padding: '0.4rem', borderRadius: '6px' }}>
-                      <div style={{ fontSize: '0.7rem', color: 'var(--text-dim)' }}>5m</div>
-                      <div style={{ fontSize: '0.82rem', fontWeight: '700', color: (dexData.priceChange?.m5 || 0) >= 0 ? 'var(--neon-green)' : 'var(--neon-pink)' }}>
-                        {(dexData.priceChange?.m5 || 0) >= 0 ? '+' : ''}{(dexData.priceChange?.m5 || 0).toFixed(1)}%
-                      </div>
-                    </div>
-                    <div style={{ background: 'rgba(0,0,0,0.3)', padding: '0.4rem', borderRadius: '6px' }}>
-                      <div style={{ fontSize: '0.7rem', color: 'var(--text-dim)' }}>1h</div>
-                      <div style={{ fontSize: '0.82rem', fontWeight: '700', color: (dexData.priceChange?.h1 || 0) >= 0 ? 'var(--neon-green)' : 'var(--neon-pink)' }}>
-                        {(dexData.priceChange?.h1 || 0) >= 0 ? '+' : ''}{(dexData.priceChange?.h1 || 0).toFixed(1)}%
-                      </div>
-                    </div>
-                    <div style={{ background: 'rgba(0,0,0,0.3)', padding: '0.4rem', borderRadius: '6px' }}>
-                      <div style={{ fontSize: '0.7rem', color: 'var(--text-dim)' }}>6h</div>
-                      <div style={{ fontSize: '0.82rem', fontWeight: '700', color: (dexData.priceChange?.h6 || 0) >= 0 ? 'var(--neon-green)' : 'var(--neon-pink)' }}>
-                        {(dexData.priceChange?.h6 || 0) >= 0 ? '+' : ''}{(dexData.priceChange?.h6 || 0).toFixed(1)}%
-                      </div>
-                    </div>
-                    <div style={{ background: 'rgba(0,0,0,0.3)', padding: '0.4rem', borderRadius: '6px' }}>
-                      <div style={{ fontSize: '0.7rem', color: 'var(--text-dim)' }}>24h</div>
-                      <div style={{ fontSize: '0.82rem', fontWeight: '700', color: (dexData.priceChange?.h24 || 0) >= 0 ? 'var(--neon-green)' : 'var(--neon-pink)' }}>
-                        {(dexData.priceChange?.h24 || 0) >= 0 ? '+' : ''}{(dexData.priceChange?.h24 || 0).toFixed(1)}%
-                      </div>
-                    </div>
-                  </div>
-                </div>
-
-                <div className="grid-4" style={{ marginBottom: '1.2rem', gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))' }}>
-                  {/* MARKET CAP METRIC BOX */}
-                  <div style={{ background: 'rgba(157, 0, 255, 0.06)', padding: '0.85rem', borderRadius: '10px', border: '1px solid rgba(157, 0, 255, 0.2)' }}>
-                    <div style={{ fontSize: '0.78rem', color: 'var(--neon-purple)', display: 'flex', alignItems: 'center', gap: '0.3rem', fontWeight: '700' }}>
-                      <Coins size={13} color="var(--neon-purple)" /> Market Cap (FDV)
-                    </div>
-                    <div style={{ fontSize: '1.05rem', fontWeight: '800', fontFamily: 'var(--font-mono)', color: 'var(--neon-purple)', marginTop: '0.25rem' }}>
-                      ${effectiveMarketCap.toLocaleString()}
-                    </div>
-                  </div>
-
-                  <div style={{ background: 'rgba(255,255,255,0.03)', padding: '0.85rem', borderRadius: '10px' }}>
-                    <div style={{ fontSize: '0.78rem', color: 'var(--text-dim)', display: 'flex', alignItems: 'center', gap: '0.3rem' }}>
-                      <DollarSign size={13} color="var(--neon-cyan)" /> Liquidity (USD)
-                    </div>
-                    <div style={{ fontSize: '1.05rem', fontWeight: '700', fontFamily: 'var(--font-mono)', marginTop: '0.25rem' }}>
-                      ${liquidityUsd.toLocaleString()}
-                    </div>
-                  </div>
-
-                  {/* LIQUIDITY / FDV HEALTH INDEX */}
-                  <div style={{ background: parseFloat(liqFdvRatio) < 5 ? 'rgba(255, 42, 109, 0.1)' : 'rgba(255,255,255,0.03)', padding: '0.85rem', borderRadius: '10px', border: parseFloat(liqFdvRatio) < 5 ? '1px solid rgba(255, 42, 109, 0.3)' : 'none' }}>
-                    <div style={{ fontSize: '0.78rem', color: parseFloat(liqFdvRatio) < 5 ? 'var(--neon-pink)' : 'var(--neon-yellow)', display: 'flex', alignItems: 'center', gap: '0.3rem', fontWeight: '700' }}>
-                      <Percent size={13} /> Liquidity / FDV Depth
-                    </div>
-                    <div style={{ fontSize: '1.05rem', fontWeight: '800', fontFamily: 'var(--font-mono)', color: parseFloat(liqFdvRatio) < 5 ? 'var(--neon-pink)' : 'var(--neon-yellow)', marginTop: '0.25rem' }}>
-                      {liqFdvRatio}% {parseFloat(liqFdvRatio) < 5 ? '(Low Depth)' : ''}
-                    </div>
-                  </div>
-
-                  {/* VOLUME / LIQUIDITY SLIPPAGE DANGER */}
-                  <div style={{ background: parseFloat(volLiqRatio) > 3 ? 'rgba(255, 42, 109, 0.1)' : 'rgba(255,255,255,0.03)', padding: '0.85rem', borderRadius: '10px', border: parseFloat(volLiqRatio) > 3 ? '1px solid rgba(255, 42, 109, 0.3)' : 'none' }}>
-                    <div style={{ fontSize: '0.78rem', color: parseFloat(volLiqRatio) > 3 ? 'var(--neon-pink)' : 'var(--neon-green)', display: 'flex', alignItems: 'center', gap: '0.3rem', fontWeight: '700' }}>
-                      <TrendingUp size={13} /> Vol / Liq Slippage
-                    </div>
-                    <div style={{ fontSize: '1.05rem', fontWeight: '800', fontFamily: 'var(--font-mono)', color: parseFloat(volLiqRatio) > 3 ? 'var(--neon-pink)' : 'var(--neon-green)', marginTop: '0.25rem' }}>
-                      {volLiqRatio}x {parseFloat(volLiqRatio) > 3 ? '(Slippage High)' : ''}
-                    </div>
-                  </div>
-                </div>
-              </div>
-            ) : (
-              <div style={{ textAlign: 'center', padding: '2.5rem 1rem', color: 'var(--text-dim)' }}>
-                <Search size={36} style={{ opacity: 0.4, marginBottom: '0.5rem' }} />
-                <p>Paste a Solana Mint Address or select a popular token to view real-time data.</p>
-              </div>
-            )}
+            <h2 style={{ fontFamily: 'var(--font-display)', fontSize: '1.35rem', fontWeight: 700, color: 'var(--text-primary)' }}>
+              Real AI consensus, not static rules
+            </h2>
+            <p style={{ fontSize: '0.86rem', color: 'var(--text-secondary)', maxWidth: '620px', margin: '0.5rem auto 0' }}>
+              Static scanners hand out 100/100 scores to worthless micro-cap coins. GenMeme Guard applies
+              scale-tier ceilings and a decentralized LLM consensus round before any verdict is stored.
+            </p>
           </div>
 
-          <div style={{ borderTop: '1px solid rgba(255,255,255,0.08)', paddingTop: '1rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <span style={{ fontSize: '0.8rem', color: 'var(--text-dim)' }}>API Multi-Source Feed</span>
-            {tokenAddress.trim() && (
-              <a 
-                href={`https://dexscreener.com/solana/${tokenAddress}`} 
-                target="_blank" 
-                rel="noreferrer"
-                style={{ fontSize: '0.82rem', color: 'var(--neon-cyan)', textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: '0.3rem', fontWeight: '600' }}
+          <div className="grid-4">
+            <div>
+              <div className="feature-icon"><ShieldCheck size={20} /></div>
+              <div className="feature-title">Scale-tier ceilings</div>
+              <p className="feature-text">Micro-cap coins under $100k market cap are hard-capped at 55/100 — no fake perfect scores.</p>
+            </div>
+            <div>
+              <div className="feature-icon"><TrendingUp size={20} /></div>
+              <div className="feature-title">Smart money radar</div>
+              <p className="feature-text">Tracks buy/sell ratios, holder concentration, and accumulation signals in real time.</p>
+            </div>
+            <div>
+              <div className="feature-icon"><Zap size={20} /></div>
+              <div className="feature-title">Slippage shield</div>
+              <p className="feature-text">Flags abnormal volume-to-liquidity turnover that signals wash trading or thin depth.</p>
+            </div>
+            <div>
+              <div className="feature-icon"><Cpu size={20} /></div>
+              <div className="feature-title">Decentralized AI</div>
+              <p className="feature-text">Verdicts are independently reproduced by validator nodes and finalized on-chain.</p>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      {/* ---------- Search & presets ---------- */}
+      <section className="section">
+        <div className="card">
+          <div className="section-title" style={{ marginBottom: '1rem' }}>
+            <Search size={17} /> Inspect a Solana token
+          </div>
+
+          <div style={{ display: 'flex', gap: '0.85rem', flexWrap: 'wrap', marginBottom: '1.1rem' }}>
+            <div style={{ flex: 1, minWidth: '280px' }}>
+              <input
+                type="text"
+                className="input"
+                placeholder="Paste a Solana mint address..."
+                value={tokenAddress}
+                onChange={(e) => handleSelectToken(e.target.value, '')}
+              />
+            </div>
+            <button className="btn btn-primary btn-lg" onClick={handleTriggerAudit} disabled={isAuditing || !tokenAddress.trim()}>
+              {isAuditing ? <RefreshCw size={16} className="spinner" /> : <Cpu size={16} />}
+              {isAuditing ? 'Running audit...' : 'Run AI audit'}
+            </button>
+          </div>
+
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', flexWrap: 'wrap' }}>
+            <span style={{ fontSize: '0.82rem', color: 'var(--text-tertiary)' }}>Popular:</span>
+            {PRESET_TOKENS.map((token) => (
+              <button
+                key={token.symbol}
+                className={`chip ${activePreset === token.symbol ? 'active' : ''}`}
+                onClick={() => handleSelectToken(token.address, token.symbol)}
+                disabled={isAuditing}
               >
-                Open on DEXScreener <ExternalLink size={14} />
+                {token.symbol}
+              </button>
+            ))}
+          </div>
+
+          {isAuditing && (
+            <div className="card-flat" style={{ marginTop: '1.1rem', display: 'flex', alignItems: 'center', gap: '0.65rem' }}>
+              <RefreshCw size={15} className="spinner" color="var(--accent)" />
+              <span style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', fontFamily: 'var(--font-mono)' }}>{auditStatusText}</span>
+            </div>
+          )}
+        </div>
+      </section>
+
+      {/* ---------- DEX data + audit result ---------- */}
+      <section className="section grid-2">
+
+        {/* DEX & smart money card */}
+        <div className="card" style={{ display: 'flex', flexDirection: 'column' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.1rem' }}>
+            <div className="section-title"><Activity size={17} /> DEX & smart money radar</div>
+            {dexLoading && <RefreshCw size={14} className="spinner" color="var(--text-tertiary)" />}
+          </div>
+
+          {dexData ? (
+            <div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: '1.1rem', paddingBottom: '0.9rem', borderBottom: '1px solid var(--border)' }}>
+                <div>
+                  <div style={{ fontSize: '1.2rem', fontWeight: 700, color: 'var(--text-primary)' }}>
+                    {dexData.baseToken?.symbol} / {dexData.quoteToken?.symbol}
+                  </div>
+                  <div style={{ fontSize: '0.78rem', color: 'var(--text-tertiary)' }}>
+                    {dexData.dexId?.toUpperCase()} · {dexData.pairAddress?.slice(0, 6)}...{dexData.pairAddress?.slice(-4)}
+                  </div>
+                </div>
+                <div style={{ textAlign: 'right' }}>
+                  <div style={{ fontSize: '1.15rem', fontWeight: 700, fontFamily: 'var(--font-mono)', color: 'var(--text-primary)' }}>
+                    ${parseFloat(dexData.priceUsd || 0).toLocaleString(undefined, { minimumFractionDigits: 4, maximumFractionDigits: 8 })}
+                  </div>
+                  <div className={`metric-value ${(dexData.priceChange?.h24 || 0) >= 0 ? 'up' : 'down'}`} style={{ fontSize: '0.85rem' }}>
+                    {(dexData.priceChange?.h24 || 0) >= 0 ? '+' : ''}{dexData.priceChange?.h24?.toFixed(2)}% (24h)
+                  </div>
+                </div>
+              </div>
+
+              <div className="card-flat" style={{ marginBottom: '0.9rem' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <span className="metric-label"><Zap size={12} color={smartMoney.color} /> Sentiment</span>
+                  <span style={{ fontSize: '0.78rem', fontFamily: 'var(--font-mono)', color: smartMoney.color }}>{smartMoney.netRatio}</span>
+                </div>
+                <div style={{ fontSize: '0.92rem', fontWeight: 700, color: smartMoney.color, marginTop: '0.3rem' }}>{smartMoney.label}</div>
+                <div style={{ fontSize: '0.78rem', color: 'var(--text-tertiary)', marginTop: '0.15rem', fontFamily: 'var(--font-mono)' }}>{smartMoney.text}</div>
+              </div>
+
+              <div className="card-flat" style={{ marginBottom: '0.9rem' }}>
+                <div className="metric-label" style={{ marginBottom: '0.5rem' }}><Clock size={12} /> Price trend</div>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '0.5rem', textAlign: 'center' }}>
+                  {['m5', 'h1', 'h6', 'h24'].map((k) => (
+                    <div key={k}>
+                      <div style={{ fontSize: '0.68rem', color: 'var(--text-tertiary)' }}>{k === 'm5' ? '5m' : k}</div>
+                      <div className={`metric-value ${(dexData.priceChange?.[k] || 0) >= 0 ? 'up' : 'down'}`} style={{ fontSize: '0.82rem', marginTop: '0.1rem' }}>
+                        {(dexData.priceChange?.[k] || 0) >= 0 ? '+' : ''}{(dexData.priceChange?.[k] || 0).toFixed(1)}%
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              <div className="grid-4" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(120px, 1fr))' }}>
+                <div className="metric-tile">
+                  <div className="metric-label"><Coins size={12} /> Market cap</div>
+                  <div className="metric-value">${effectiveMarketCap.toLocaleString()}</div>
+                </div>
+                <div className="metric-tile">
+                  <div className="metric-label"><DollarSign size={12} /> Liquidity</div>
+                  <div className="metric-value">${liquidityUsd.toLocaleString()}</div>
+                </div>
+                <div className="metric-tile">
+                  <div className="metric-label"><Percent size={12} /> Liq / FDV</div>
+                  <div className={`metric-value ${parseFloat(liqFdvRatio) < 5 ? 'down' : ''}`}>{liqFdvRatio}%</div>
+                </div>
+                <div className="metric-tile">
+                  <div className="metric-label"><TrendingUp size={12} /> Vol / Liq</div>
+                  <div className={`metric-value ${parseFloat(volLiqRatio) > 3 ? 'down' : ''}`}>{volLiqRatio}x</div>
+                </div>
+              </div>
+            </div>
+          ) : (
+            <div className="empty">
+              <Search size={30} />
+              <p className="hint">Paste a Solana mint address or select a popular token to view live data.</p>
+            </div>
+          )}
+
+          <div style={{ borderTop: '1px solid var(--border)', marginTop: '1.1rem', paddingTop: '0.9rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <span style={{ fontSize: '0.78rem', color: 'var(--text-tertiary)' }}>DEXScreener live feed</span>
+            {tokenAddress.trim() && (
+              <a href={`https://dexscreener.com/solana/${tokenAddress}`} target="_blank" rel="noreferrer" className="link">
+                Open on DEXScreener <ExternalLink size={12} />
               </a>
             )}
           </div>
         </div>
 
-        {/* Right Column: AI Audit Security Card & Actionable Buy Decision */}
-        <div className="glass-card" style={{ padding: '1.75rem', position: 'relative' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.25rem' }}>
-            <h3 style={{ fontSize: '1.1rem', fontWeight: '700', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-              <Cpu size={20} color="var(--neon-cyan)" /> GenLayer LLM Audit Verdict (On-Chain)
-            </h3>
+        {/* Audit verdict card */}
+        <div className="card">
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.1rem' }}>
+            <div className="section-title"><Cpu size={17} /> On-chain audit verdict</div>
             {!isAuditing && auditReport && getVerdictBadge(auditReport.verdict)}
           </div>
 
-          {/* DYNAMIC LOADING STATE CARD DURING ACTIVE ON-CHAIN AUDIT */}
           {isAuditing ? (
-            <div style={{ textAlign: 'center', padding: '3.5rem 1.5rem', background: 'rgba(0, 240, 255, 0.03)', borderRadius: '14px', border: '1px solid rgba(0, 240, 255, 0.2)' }}>
-              <div style={{ display: 'inline-flex', padding: '1rem', borderRadius: '50%', background: 'rgba(0, 240, 255, 0.1)', marginBottom: '1rem' }}>
-                <RefreshCw size={36} className="spinner" color="var(--neon-cyan)" />
-              </div>
-              <h4 style={{ fontSize: '1.1rem', fontWeight: '800', color: '#ffffff', marginBottom: '0.5rem' }}>
-                GenLayer Multi-Node LLM Consensus In Progress
-              </h4>
-              <p style={{ fontSize: '0.88rem', color: 'var(--neon-cyan)', fontFamily: 'var(--font-mono)', lineHeight: '1.5', maxWidth: '480px', margin: '0 auto 1.2rem auto' }}>
-                {auditStatusText}
-              </p>
-              
-              <div style={{ display: 'inline-flex', alignItems: 'center', gap: '0.5rem', padding: '0.45rem 0.9rem', background: 'rgba(0, 0, 0, 0.4)', borderRadius: '20px', fontSize: '0.78rem', color: 'var(--text-dim)', border: '1px solid rgba(255, 255, 255, 0.08)' }}>
-                <span className="spinner" style={{ width: '8px', height: '8px', borderRadius: '50%', background: 'var(--neon-green)', display: 'inline-block' }}></span>
-                <span>Fetching live web APIs & executing LLM agreement on StudioNet...</span>
-              </div>
-
+            <div className="loading-state">
+              <div className="loading-icon"><RefreshCw size={28} className="spinner" /></div>
+              <div className="loading-title">Multi-node LLM consensus in progress</div>
+              <p className="loading-status">{auditStatusText}</p>
               {activeTxHash && (
-                <div style={{ marginTop: '1.2rem' }}>
-                  <a 
-                    href={`${EXPLORER_BASE_URL}/tx/${activeTxHash}`}
-                    target="_blank"
-                    rel="noreferrer"
-                    style={{ fontSize: '0.82rem', color: 'var(--neon-green)', textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: '0.35rem', fontWeight: '600', background: 'rgba(0, 255, 157, 0.08)', padding: '0.4rem 0.85rem', borderRadius: '8px', border: '1px solid rgba(0, 255, 157, 0.3)' }}
-                  >
-                    Track Live Consensus on Tx Explorer <ExternalLink size={13} />
-                  </a>
-                </div>
+                <a href={`${EXPLORER_BASE_URL}/tx/${activeTxHash}`} target="_blank" rel="noreferrer" className="link">
+                  Track live consensus on explorer <ExternalLink size={12} />
+                </a>
               )}
             </div>
           ) : auditReport ? (
             <div>
-              {/* ACTIONABLE BUY RECOMMENDATION BANNER */}
               {renderBuyDecisionBanner(auditReport.safety_score, auditReport.verdict)}
 
-              {/* Score Gauge & LLM Executive Summary */}
-              <div style={{ display: 'flex', alignItems: 'center', gap: '1.5rem', marginBottom: '1.5rem', background: 'rgba(255,255,255,0.02)', padding: '1.2rem', borderRadius: '14px', border: '1px solid rgba(255,255,255,0.05)' }}>
-                {/* SVG Circular Gauge */}
-                <div className="gauge-container">
-                  <svg className="gauge-svg" width="120" height="120" viewBox="0 0 120 120">
-                    <circle className="gauge-circle-bg" cx="60" cy="60" r="50" />
-                    <circle 
-                      className="gauge-circle-fill" 
-                      cx="60" 
-                      cy="60" 
-                      r="50" 
+              <div className="card-flat" style={{ display: 'flex', alignItems: 'center', gap: '1.2rem', marginBottom: '1.1rem' }}>
+                <div className="gauge">
+                  <svg width="104" height="104" viewBox="0 0 120 120">
+                    <circle className="gauge-bg" cx="60" cy="60" r="50" />
+                    <circle
+                      className="gauge-fill"
+                      cx="60" cy="60" r="50"
                       stroke={getGaugeColor(auditReport.safety_score, auditReport.verdict)}
                       strokeDasharray="314"
                       strokeDashoffset={314 - (314 * auditReport.safety_score) / 100}
                     />
                   </svg>
-                  <div className="gauge-value" style={{ color: getGaugeColor(auditReport.safety_score, auditReport.verdict) }}>
-                    {auditReport.safety_score}
-                  </div>
+                  <div className="gauge-value">{auditReport.safety_score}</div>
                 </div>
 
                 <div style={{ flex: 1 }}>
-                  <div style={{ fontSize: '0.8rem', textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--text-dim)', fontWeight: '700' }}>
-                    Safety Score Index
+                  <div className="metric-label">
+                    {(auditReport.token_symbol && auditReport.token_symbol !== 'UNKNOWN') ? auditReport.token_symbol : (dexData?.baseToken?.symbol || activePreset || 'TOKEN')} summary
                   </div>
-                  <div style={{ fontSize: '1.2rem', fontWeight: '800', margin: '0.2rem 0' }}>
-                    {(auditReport.token_symbol && auditReport.token_symbol !== 'UNKNOWN') ? auditReport.token_symbol : (dexData?.baseToken?.symbol || activePreset || 'TOKEN')} LLM AI Summary Digest
-                  </div>
-                  <p style={{ fontSize: '0.85rem', color: auditReport.safety_score >= 80 ? 'var(--neon-cyan)' : auditReport.safety_score >= 50 ? 'var(--neon-yellow)' : 'var(--neon-pink)', lineHeight: '1.5', fontFamily: 'var(--font-sans)' }}>
+                  <p style={{ fontSize: '0.84rem', color: 'var(--text-secondary)', lineHeight: 1.55, marginTop: '0.35rem' }}>
                     "{auditReport.ai_summary}"
                   </p>
                   {auditReport.analysis_source && (
-                    <div style={{
-                      display: 'inline-flex', alignItems: 'center', gap: '0.4rem',
-                      marginTop: '0.5rem', padding: '0.3rem 0.65rem', borderRadius: '999px',
-                      fontSize: '0.72rem', fontWeight: '700', letterSpacing: '0.03em',
-                      background: 'rgba(0, 255, 179, 0.08)',
-                      border: '1px solid rgba(0, 255, 179, 0.35)',
-                      color: 'var(--neon-green)'
-                    }}>
-                      <Cpu size={12} />
-                      Verdict from GenLayer multi-validator LLM consensus
+                    <div className="tag" style={{ marginTop: '0.6rem', color: 'var(--accent)', borderColor: 'var(--accent-border)', background: 'var(--accent-soft)' }}>
+                      <Cpu size={11} />
+                      LLM multi-validator consensus
                     </div>
                   )}
                 </div>
               </div>
 
-              {/* Common Meme Rug Pull Technical Matrix */}
-              <div style={{ marginBottom: '1.2rem' }}>
-                <div style={{ fontSize: '0.82rem', fontWeight: '800', color: 'var(--text-muted)', uppercase: 'true', letterSpacing: '0.05em', marginBottom: '0.6rem' }}>
-                  ⚡ COMMON MEME RUG PULL INDICATORS:
-                </div>
+              <div style={{ marginBottom: '1rem' }}>
+                <div className="metric-label" style={{ marginBottom: '0.55rem' }}>Rug pull indicators</div>
                 <div className="grid-2">
-                  <div style={{ background: 'rgba(255,255,255,0.03)', padding: '0.85rem', borderRadius: '10px', borderLeft: `3px solid ${auditReport.mint_disabled ? 'var(--neon-green)' : 'var(--neon-pink)'}` }}>
-                    <div style={{ fontSize: '0.78rem', color: 'var(--text-dim)', display: 'flex', alignItems: 'center', gap: '0.3rem' }}>
-                      {auditReport.mint_disabled ? <Lock size={13} color="var(--neon-green)" /> : <Unlock size={13} color="var(--neon-pink)" />} Mint Authority (Token Inflation Rug)
+                  <div className={`indicator-tile ${auditReport.mint_disabled ? 'ok' : 'risk'}`}>
+                    <div className="indicator-label">
+                      {auditReport.mint_disabled ? <Lock size={12} /> : <Unlock size={12} />} Mint authority
                     </div>
-                    <div style={{ fontSize: '0.95rem', fontWeight: '700', marginTop: '0.25rem', color: auditReport.mint_disabled ? 'var(--neon-green)' : 'var(--neon-pink)' }}>
-                      {auditReport.mint_disabled ? 'Disabled (Safe)' : 'Enabled (Extreme Risk)'}
+                    <div className={`indicator-value ${auditReport.mint_disabled ? 'ok' : 'risk'}`}>
+                      {auditReport.mint_disabled ? 'Disabled (safe)' : 'Enabled (risk)'}
                     </div>
                   </div>
-
-                  <div style={{ background: 'rgba(255,255,255,0.03)', padding: '0.85rem', borderRadius: '10px', borderLeft: `3px solid ${auditReport.freeze_disabled ? 'var(--neon-green)' : 'var(--neon-pink)'}` }}>
-                    <div style={{ fontSize: '0.78rem', color: 'var(--text-dim)', display: 'flex', alignItems: 'center', gap: '0.3rem' }}>
-                      {auditReport.freeze_disabled ? <Lock size={13} color="var(--neon-green)" /> : <Unlock size={13} color="var(--neon-pink)" />} Freeze Authority (Honeypot Wallet Lock)
+                  <div className={`indicator-tile ${auditReport.freeze_disabled ? 'ok' : 'risk'}`}>
+                    <div className="indicator-label">
+                      {auditReport.freeze_disabled ? <Lock size={12} /> : <Unlock size={12} />} Freeze authority
                     </div>
-                    <div style={{ fontSize: '0.95rem', fontWeight: '700', marginTop: '0.25rem', color: auditReport.freeze_disabled ? 'var(--neon-green)' : 'var(--neon-pink)' }}>
-                      {auditReport.freeze_disabled ? 'Disabled (Safe)' : 'Enabled (Honeypot Risk)'}
+                    <div className={`indicator-value ${auditReport.freeze_disabled ? 'ok' : 'risk'}`}>
+                      {auditReport.freeze_disabled ? 'Disabled (safe)' : 'Enabled (risk)'}
                     </div>
                   </div>
                 </div>
               </div>
 
-              {/* Risk Factors List */}
               {auditReport.risk_factors && auditReport.risk_factors.length > 0 && (
-                <div style={{ background: 'rgba(255, 42, 109, 0.08)', borderRadius: '12px', padding: '0.9rem 1.1rem', border: '1px solid rgba(255, 42, 109, 0.3)', marginBottom: '1rem' }}>
-                  <div style={{ fontSize: '0.85rem', fontWeight: '800', color: 'var(--neon-pink)', marginBottom: '0.4rem', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
-                    <AlertTriangle size={15} /> Detected GenLayer Risk Signals (Real On-Chain):
-                  </div>
-                  <ul style={{ paddingLeft: '1.2rem', margin: 0, fontSize: '0.84rem', color: '#ffb3c6' }}>
-                    {auditReport.risk_factors.map((risk, i) => (
-                      <li key={i} style={{ marginBottom: '0.25rem' }}>{risk}</li>
-                    ))}
+                <div className="risk-box" style={{ marginBottom: '1rem' }}>
+                  <div className="heading"><AlertTriangle size={14} /> Detected risk signals</div>
+                  <ul>
+                    {auditReport.risk_factors.map((risk, i) => <li key={i}>{risk}</li>)}
                   </ul>
                 </div>
               )}
 
-              {/* ALWAYS SHOW DIRECT EXPLORER TRANSACTION LINK IF AVAILABLE */}
-              {activeTxHash ? (
-                <div style={{ background: 'rgba(0, 255, 157, 0.06)', padding: '0.85rem 1.1rem', borderRadius: '12px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', border: '1px solid rgba(0, 255, 157, 0.35)', boxShadow: '0 0 15px rgba(0, 255, 157, 0.1)' }}>
-                  <div>
-                    <div style={{ fontSize: '0.75rem', textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--text-dim)', fontWeight: '700' }}>
-                      ON-CHAIN AUDIT TRANSACTION VERIFIED
-                    </div>
-                    <div style={{ fontSize: '0.85rem', color: 'var(--neon-green)', fontFamily: 'var(--font-mono)', fontWeight: '700', marginTop: '0.15rem' }}>
-                      Tx: {activeTxHash.slice(0, 12)}...{activeTxHash.slice(-10)}
-                    </div>
+              <div className="card-flat" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '0.75rem', flexWrap: 'wrap' }}>
+                <div>
+                  <div style={{ fontSize: '0.7rem', textTransform: 'uppercase', letterSpacing: '0.04em', color: 'var(--text-tertiary)', fontWeight: 600 }}>
+                    {activeTxHash ? 'Audit transaction verified' : 'Contract state verified'}
                   </div>
-                  <a 
-                    href={`${EXPLORER_BASE_URL}/tx/${activeTxHash}`}
-                    target="_blank"
-                    rel="noreferrer"
-                    style={{ fontSize: '0.85rem', color: '#070a12', textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: '0.35rem', fontWeight: '800', background: 'var(--neon-green)', padding: '0.5rem 0.95rem', borderRadius: '8px', boxShadow: '0 0 10px rgba(0, 255, 157, 0.4)' }}
-                  >
-                    View Tx on Explorer <ExternalLink size={14} />
-                  </a>
-                </div>
-              ) : (
-                <div style={{ background: 'rgba(0, 240, 255, 0.05)', padding: '0.85rem 1.1rem', borderRadius: '12px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', border: '1px solid rgba(0, 240, 255, 0.3)' }}>
-                  <div>
-                    <div style={{ fontSize: '0.75rem', textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--text-dim)', fontWeight: '700' }}>
-                      GENLAYER CONTRACT ON-CHAIN STATE VERIFIED
-                    </div>
-                    <div style={{ fontSize: '0.85rem', color: 'var(--neon-cyan)', fontFamily: 'var(--font-mono)', fontWeight: '700', marginTop: '0.15rem' }}>
-                      Contract: {contractAddress.slice(0, 10)}...{contractAddress.slice(-8)}
-                    </div>
+                  <div style={{ fontSize: '0.82rem', color: 'var(--text-primary)', fontFamily: 'var(--font-mono)', marginTop: '0.15rem' }}>
+                    {activeTxHash ? `${activeTxHash.slice(0, 12)}...${activeTxHash.slice(-10)}` : `${contractAddress.slice(0, 10)}...${contractAddress.slice(-8)}`}
                   </div>
-                  <a 
-                    href={`${EXPLORER_BASE_URL}/address/${contractAddress}`}
-                    target="_blank"
-                    rel="noreferrer"
-                    style={{ fontSize: '0.82rem', color: 'var(--neon-cyan)', textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: '0.35rem', fontWeight: '700', background: 'rgba(0, 240, 255, 0.12)', padding: '0.45rem 0.85rem', borderRadius: '8px', border: '1px solid rgba(0, 240, 255, 0.35)' }}
-                  >
-                    View Contract Explorer <ExternalLink size={14} />
-                  </a>
                 </div>
-              )}
+                <a
+                  href={activeTxHash ? `${EXPLORER_BASE_URL}/tx/${activeTxHash}` : `${EXPLORER_BASE_URL}/address/${contractAddress}`}
+                  target="_blank" rel="noreferrer"
+                  className="btn btn-secondary"
+                >
+                  View on explorer <ExternalLink size={13} />
+                </a>
+              </div>
             </div>
           ) : (
-            <div style={{ textAlign: 'center', padding: '3.5rem 1rem', color: 'var(--text-dim)' }}>
-              <ShieldAlert size={42} style={{ opacity: 0.3, marginBottom: '0.75rem', color: 'var(--neon-yellow)' }} />
-              <p style={{ fontWeight: '700', fontSize: '1rem', color: '#ffffff' }}>
-                No Active AI Audit Executed in Current Session
-              </p>
+            <div className="empty">
+              <ShieldAlert size={30} />
+              <p className="title">No audit run this session</p>
               {tokenAddress.trim() && (
-                <p style={{ fontSize: '0.82rem', marginTop: '0.4rem', color: 'var(--text-muted)', fontFamily: 'var(--font-mono)' }}>
-                  Mint Address: {tokenAddress}
-                </p>
+                <p style={{ fontSize: '0.78rem', color: 'var(--text-tertiary)', fontFamily: 'var(--font-mono)', marginTop: '0.3rem' }}>{tokenAddress}</p>
               )}
-              <p style={{ fontSize: '0.85rem', marginTop: '0.75rem', color: 'var(--neon-green)', fontWeight: '600' }}>
-                {tokenAddress.trim() ? 'Click "Run 1-Click AI Rug Audit" to sign with MetaMask & execute GenLayer consensus on-chain!' : 'Paste a Solana token address above or select a preset token to start!'}
+              <p className="hint">
+                {tokenAddress.trim() ? 'Click "Run AI audit" to sign with MetaMask and execute GenLayer consensus.' : 'Paste a token address above or pick a preset to start.'}
               </p>
             </div>
           )}
         </div>
+      </section>
 
-      </div>
-
-      {/* System Features & Architecture Showcase */}
-      <section style={{ marginBottom: '2rem' }}>
-        <h3 style={{ fontSize: '1.2rem', fontWeight: '800', marginBottom: '1.25rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-          <Sparkles size={20} color="var(--neon-cyan)" /> GenLayer Intelligent Contract Security Architecture
-        </h3>
-
+      {/* ---------- Architecture ---------- */}
+      <section className="section">
+        <div className="section-title" style={{ marginBottom: '1.1rem' }}>
+          <Sparkles size={17} /> How the consensus audit works
+        </div>
         <div className="grid-3">
-          <div className="feature-card">
-            <div style={{ background: 'rgba(0, 240, 255, 0.1)', padding: '0.65rem', borderRadius: '12px', display: 'inline-flex', marginBottom: '0.85rem' }}>
-              <Cpu size={26} color="var(--neon-cyan)" />
-            </div>
-            <h4 style={{ fontSize: '1.05rem', fontWeight: '800', color: '#ffffff', marginBottom: '0.4rem' }}>
-              Multi-Node LLM Agreement
-            </h4>
-            <p style={{ fontSize: '0.85rem', color: 'var(--text-muted)', lineHeight: '1.5' }}>
-              Executes non-deterministic web API fetches across distributed validator nodes, reaching on-chain BFT consensus via the Equivalence Principle.
-            </p>
+          <div className="feature-tile">
+            <div className="feature-icon"><Cpu size={20} /></div>
+            <div className="feature-title">Multi-node LLM agreement</div>
+            <p className="feature-text">Validators independently re-run the web fetch and LLM audit, reaching on-chain consensus via the equivalence principle.</p>
           </div>
-
-          <div className="feature-card">
-            <div style={{ background: 'rgba(0, 255, 157, 0.1)', padding: '0.65rem', borderRadius: '12px', display: 'inline-flex', marginBottom: '0.85rem' }}>
-              <Zap size={26} color="var(--neon-green)" />
-            </div>
-            <h4 style={{ fontSize: '1.05rem', fontWeight: '800', color: '#ffffff', marginBottom: '0.4rem' }}>
-              Smart Money & Whale Radar
-            </h4>
-            <p style={{ fontSize: '0.85rem', color: 'var(--text-muted)', lineHeight: '1.5' }}>
-              Analyzes 24h buys vs sells transaction volume ratios in real-time, detecting whale dumping pressure and smart money accumulation.
-            </p>
+          <div className="feature-tile">
+            <div className="feature-icon"><Zap size={20} /></div>
+            <div className="feature-title">Smart money & whale radar</div>
+            <p className="feature-text">Analyzes 24h buy/sell ratios in real time to surface whale dumping pressure or accumulation.</p>
           </div>
-
-          <div className="feature-card">
-            <div style={{ background: 'rgba(255, 42, 109, 0.1)', padding: '0.65rem', borderRadius: '12px', display: 'inline-flex', marginBottom: '0.85rem' }}>
-              <ShieldAlert size={26} color="var(--neon-pink)" />
-            </div>
-            <h4 style={{ fontSize: '1.05rem', fontWeight: '800', color: '#ffffff', marginBottom: '0.4rem' }}>
-              Ruthless Deduction Rubric
-            </h4>
-            <p style={{ fontSize: '0.85rem', color: 'var(--text-muted)', lineHeight: '1.5' }}>
-              Applies zero-tolerance deductions: 50-point penalty for active mint or freeze authorities, low liquidity depth, or high volume slippage.
-            </p>
+          <div className="feature-tile">
+            <div className="feature-icon"><ShieldAlert size={20} /></div>
+            <div className="feature-title">Zero-tolerance rubric</div>
+            <p className="feature-text">A live mint or freeze authority, or missing evidence, forces the audit to a critical verdict or refuses to store one.</p>
           </div>
         </div>
       </section>
 
-      {/* Bottom Section: On-Chain Audit History Directory */}
-      <section className="glass-card" style={{ padding: '1.75rem' }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.2rem' }}>
-          <h3 style={{ fontSize: '1.1rem', fontWeight: '700', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-            <Database size={20} color="var(--neon-purple)" /> On-Chain Audits Directory (Live Contract State)
-          </h3>
-          <span style={{ fontSize: '0.85rem', color: 'var(--text-dim)' }}>Total On-Chain Audits: <strong style={{ color: 'var(--neon-cyan)', fontFamily: 'var(--font-mono)' }}>{totalAudits}</strong></span>
-        </div>
+      {/* ---------- Audit history ---------- */}
+      <section className="section">
+        <div className="card">
+          <div className="section-head" style={{ marginBottom: '0.9rem' }}>
+            <div className="section-title"><Database size={17} /> On-chain audit history</div>
+            <span className="section-meta">Total: <strong style={{ color: 'var(--text-primary)', fontFamily: 'var(--font-mono)' }}>{totalAudits}</strong></span>
+          </div>
 
-        {recentAudits.length > 0 ? (
-          <div style={{ overflowX: 'auto' }}>
-            <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: '0.88rem' }}>
-              <thead>
-                <tr style={{ borderBottom: '1px solid rgba(255,255,255,0.1)', color: 'var(--text-dim)' }}>
-                  <th style={{ padding: '0.75rem 1rem' }}>Token Mint Address</th>
-                  <th style={{ padding: '0.75rem 1rem' }}>Action</th>
-                  <th style={{ padding: '0.75rem 1rem' }}>Explorer Links</th>
-                </tr>
-              </thead>
-              <tbody>
-                {recentAudits.map((addr, idx) => (
-                  <tr key={idx} style={{ borderBottom: '1px solid rgba(255,255,255,0.04)' }}>
-                    <td style={{ padding: '0.75rem 1rem', fontFamily: 'var(--font-mono)', color: 'var(--neon-cyan)' }}>
-                      {addr}
-                    </td>
-                    <td style={{ padding: '0.75rem 1rem' }}>
-                      <button 
-                        className="btn-outline"
-                        style={{ padding: '0.3rem 0.75rem', fontSize: '0.8rem' }}
-                        onClick={() => {
-                          handleSelectToken(addr);
-                        }}
-                      >
-                        Select Token
-                      </button>
-                    </td>
-                    <td style={{ padding: '0.75rem 1rem' }}>
-                      {sessionTxHashes[addr] ? (
-                        <a 
-                          href={`${EXPLORER_BASE_URL}/tx/${sessionTxHashes[addr]}`}
-                          target="_blank"
-                          rel="noreferrer"
-                          style={{ fontSize: '0.8rem', color: 'var(--neon-green)', textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: '0.3rem', fontWeight: '700' }}
-                        >
-                          View Audit Tx Explorer <ExternalLink size={12} />
-                        </a>
-                      ) : (
-                        <a 
-                          href={`${EXPLORER_BASE_URL}/address/${contractAddress}`}
-                          target="_blank"
-                          rel="noreferrer"
-                          style={{ fontSize: '0.8rem', color: 'var(--neon-cyan)', textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: '0.3rem' }}
-                        >
-                          Contract State Explorer <ExternalLink size={12} />
-                        </a>
-                      )}
-                    </td>
+          {recentAudits.length > 0 ? (
+            <div className="table-wrap">
+              <table className="table">
+                <thead>
+                  <tr>
+                    <th>Token mint address</th>
+                    <th>Action</th>
+                    <th>Explorer</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        ) : (
-          <div style={{ textAlign: 'center', padding: '1.5rem', color: 'var(--text-dim)', fontSize: '0.88rem' }}>
-            No recent token audits logged on-chain yet. Trigger your first audit above!
-          </div>
-        )}
+                </thead>
+                <tbody>
+                  {recentAudits.map((addr, idx) => (
+                    <tr key={idx}>
+                      <td className="mono">{addr}</td>
+                      <td>
+                        <button className="btn btn-ghost" style={{ padding: '0.3rem 0.7rem', fontSize: '0.78rem' }} onClick={() => handleSelectToken(addr)}>
+                          Select
+                        </button>
+                      </td>
+                      <td>
+                        {sessionTxHashes[addr] ? (
+                          <a href={`${EXPLORER_BASE_URL}/tx/${sessionTxHashes[addr]}`} target="_blank" rel="noreferrer" className="link">
+                            View tx <ExternalLink size={11} />
+                          </a>
+                        ) : (
+                          <a href={`${EXPLORER_BASE_URL}/address/${contractAddress}`} target="_blank" rel="noreferrer" className="link">
+                            Contract state <ExternalLink size={11} />
+                          </a>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          ) : (
+            <div className="empty" style={{ padding: '1.5rem' }}>
+              <p className="hint">No token audits logged on-chain yet. Trigger your first audit above.</p>
+            </div>
+          )}
+        </div>
       </section>
 
-      {/* Footer */}
-      <footer style={{ textAlign: 'center', marginTop: '3rem', paddingBottom: '2rem', fontSize: '0.82rem', color: 'var(--text-dim)' }}>
-        GenMeme Guard — Built on GenLayer Intelligent Contracts & Multi-Source LLM Consensus
+      <footer className="footer">
+        GenMeme Guard — built on GenLayer intelligent contracts &amp; multi-validator LLM consensus
       </footer>
     </div>
   );
