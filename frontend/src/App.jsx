@@ -327,15 +327,23 @@ export default function App() {
     return null;
   };
 
-  // Strictly load Real Audit Output for token directly from StudioNet RPC ONLY WHEN EXPLICITLY CALLED
+  // Load the real on-chain audit report for a token, straight from StudioNet.
+  // `reqId` is only passed by handleTriggerAudit to confirm a transaction we
+  // just submitted ourselves in this session. When it is omitted, this must
+  // NOT fall back to a cached sessionRequestIds value: get_request_audit
+  // returns a frozen snapshot of that one transaction forever, while a
+  // token's audit can be overwritten by a newer transaction (same wallet, a
+  // different session, or anyone else) at any time. Falling back to a stale
+  // request_id would pin the UI to an old result instead of ground truth, so
+  // the general "show me this token's audit" path always reads
+  // get_audit(token_address), which reflects the latest record.
   const loadAuditFromChain = async (address, reqId = '') => {
     if (!address || !address.trim()) return false;
     const currentSessionTx = sessionTxHashes[address] || '';
-    const currentReqId = reqId || sessionRequestIds[address] || '';
     setLastTxHash(currentSessionTx);
-    setLastRequestId(currentReqId);
+    setLastRequestId(reqId || sessionRequestIds[address] || '');
 
-    const onchainReport = await fetchStudioNetAuditReport(contractAddress, address, currentReqId, userAccount);
+    const onchainReport = await fetchStudioNetAuditReport(contractAddress, address, reqId, userAccount);
     if (onchainReport && onchainReport.has_audit) {
       setAuditReport(onchainReport);
       return true;
@@ -377,15 +385,20 @@ export default function App() {
     }
   }, []);
 
-  // Handle Token Selection / Input Change (ZERO AUTO-LOAD OF PAST AUDITS)
+  // Handle token selection / input change. Clears any stale report first,
+  // then looks up whatever audit already exists on-chain for this token
+  // (read-only, no wallet interaction) so the UI always reflects the latest
+  // ground truth instead of a screenshot-in-time from an earlier session.
+  // "Run AI audit" below still submits a brand-new consensus round.
   const handleSelectToken = async (ca, symbol = '') => {
     setTokenAddress(ca);
     setActivePreset(symbol);
-    setAuditReport(null); // ALWAYS CLEAR AUDIT REPORT TO EMPTY STATE ON TOKEN CHANGE
+    setAuditReport(null);
     setLastTxHash(sessionTxHashes[ca] || '');
     setLastRequestId(sessionRequestIds[ca] || '');
     if (ca.trim()) {
       await fetchDexData(ca);
+      await loadAuditFromChain(ca);
     } else {
       setDexData(null);
     }
@@ -1031,12 +1044,12 @@ export default function App() {
           ) : (
             <div className="empty">
               <ShieldAlert size={30} />
-              <p className="title">No audit run this session</p>
+              <p className="title">No on-chain audit found for this token</p>
               {tokenAddress.trim() && (
                 <p style={{ fontSize: '0.78rem', color: 'var(--text-tertiary)', fontFamily: 'var(--font-mono)', marginTop: '0.3rem' }}>{tokenAddress}</p>
               )}
               <p className="hint">
-                {tokenAddress.trim() ? 'Click "Run AI audit" to sign with MetaMask and execute GenLayer consensus.' : 'Paste a token address above or pick a preset to start.'}
+                {tokenAddress.trim() ? 'Click "Run AI audit" to sign with MetaMask and execute a new GenLayer consensus round.' : 'Paste a token address above or pick a preset to start.'}
               </p>
             </div>
           )}
