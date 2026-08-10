@@ -2,6 +2,57 @@ import json
 import sys
 import pytest
 
+CONTRACT = "contracts/meme_rug_auditor.py"
+
+# The audit fails closed, so every successful-path test has to supply the live
+# market and authority evidence the contract insists on before it will call the
+# model at all.
+DEX_RESPONSE = {
+    "pairs": [{
+        "baseToken": {"symbol": "WIF", "name": "Dogwifhat"},
+        "dexId": "raydium",
+        "priceUsd": "2.45",
+        "liquidity": {"usd": 1500000.0},
+        "volume": {"h24": 5000000.0},
+        "priceChange": {"h24": 12.5},
+        "txns": {"h24": {"buys": 1200, "sells": 800}},
+    }]
+}
+
+RUGCHECK_RESPONSE = {
+    "token": {"mintAuthority": None, "freezeAuthority": None},
+    "risks": [{"name": "High volume volatility"}],
+    "score": 92,
+}
+
+
+def mock_live_sources(vm, dex=None, rugcheck=None):
+    """Register the DEXScreener and RugCheck responses the contract fetches."""
+    vm.mock_web(r".*dexscreener\.com.*",
+                {"status": 200, "body": json.dumps(dex if dex is not None else DEX_RESPONSE)})
+    vm.mock_web(r".*rugcheck\.xyz.*",
+                {"status": 200, "body": json.dumps(rugcheck if rugcheck is not None else RUGCHECK_RESPONSE)})
+
+
+def llm_verdict(**overrides):
+    """A schema-valid model report, tweakable per test."""
+    report = {
+        "token_address": "EKpQGSJtjMFqKZ9KQanSqYXRcF8fBopzLHYxdM65zcjm",
+        "token_symbol": "WIF",
+        "safety_score": 92,
+        "verdict": "SAFE_TO_TRADE",
+        "mint_disabled": True,
+        "freeze_disabled": True,
+        "lp_burned_pct": 100,
+        "top10_holder_pct": 18,
+        "holder_count": 185400,
+        "smart_money_wallets": 42,
+        "risk_factors": ["High volume volatility"],
+        "ai_summary": "Model brief covering tier, liquidity, hooks and orderbook flow.",
+    }
+    report.update(overrides)
+    return json.dumps(report)
+
 
 def get_check_equivalence(direct_deploy):
     contract = direct_deploy("contracts/meme_rug_auditor.py")
@@ -166,22 +217,10 @@ def test_forged_payment_rejection(direct_vm, direct_deploy, direct_alice):
 def test_replay_attack_prevention(direct_vm, direct_deploy, direct_alice):
     direct_vm.sender = direct_alice
 
-    mock_llm_result = {
-        "token_address": "EKpQGSJtjMFqKZ9KQanSqYXRcF8fBopzLHYxdM65zcjm",
-        "token_symbol": "WIF",
-        "safety_score": 90,
-        "verdict": "SAFE_TO_TRADE",
-        "mint_disabled": True,
-        "freeze_disabled": True,
-        "lp_burned_pct": 100,
-        "top10_holder_pct": 20,
-        "risk_factors": [],
-        "ai_summary": "Clean token audit.",
-    }
-    direct_vm.mock_web(r".*", {"status": 200, "body": "{}"})
-    direct_vm.mock_llm(r".*", json.dumps(mock_llm_result))
+    mock_live_sources(direct_vm)
+    direct_vm.mock_llm(r".*", llm_verdict(safety_score=90))
 
-    contract = direct_deploy("contracts/meme_rug_auditor.py")
+    contract = direct_deploy(CONTRACT)
     token_ca = "EKpQGSJtjMFqKZ9KQanSqYXRcF8fBopzLHYxdM65zcjm"
 
     # First request succeeds
@@ -195,22 +234,15 @@ def test_replay_attack_prevention(direct_vm, direct_deploy, direct_alice):
 def test_request_id_mismatch_authorization(direct_vm, direct_deploy, direct_alice, direct_bob):
     direct_vm.sender = direct_alice
 
-    mock_llm_result = {
-        "token_address": "5c4HyD2rSShqnTsf5z3SaoD2H3GE452u2CUuYjviBAGS",
-        "token_symbol": "SGL",
-        "safety_score": 85,
-        "verdict": "SAFE_TO_TRADE",
-        "mint_disabled": True,
-        "freeze_disabled": True,
-        "lp_burned_pct": 100,
-        "top10_holder_pct": 15,
-        "risk_factors": [],
-        "ai_summary": "SGL audit completed for Alice.",
-    }
-    direct_vm.mock_web(r".*", {"status": 200, "body": "{}"})
-    direct_vm.mock_llm(r".*", json.dumps(mock_llm_result))
+    mock_live_sources(direct_vm)
+    direct_vm.mock_llm(r".*", llm_verdict(
+        token_address="5c4HyD2rSShqnTsf5z3SaoD2H3GE452u2CUuYjviBAGS",
+        token_symbol="SGL",
+        safety_score=85,
+        ai_summary="SGL audit completed for Alice.",
+    ))
 
-    contract = direct_deploy("contracts/meme_rug_auditor.py")
+    contract = direct_deploy(CONTRACT)
     token_ca = "5c4HyD2rSShqnTsf5z3SaoD2H3GE452u2CUuYjviBAGS"
 
     # Alice submits audit request
@@ -227,182 +259,6 @@ def test_request_id_mismatch_authorization(direct_vm, direct_deploy, direct_alic
     with pytest.raises(Exception, match="Caller authorization mismatch"):
         contract.get_request_audit("alice_private_req_999", caller_address=bob_hex)
 
-
-def test_run_live_demo_audit(direct_deploy):
-    print("\n" + "=" * 65)
-    print(" GENMEME GUARD -- RUNNING LOCAL GENVM SIMULATOR AUDIT DEMO")
-    print("=" * 65)
-    contract = direct_deploy("contracts/meme_rug_auditor.py")
-    wif_ca = "EKpQGSJtjMFqKZ9KQanSqYXRcF8fBopzLHYxdM65zcjm"
-
-    wif_telemetry = json.dumps({
-        "token_symbol": "WIF",
-        "token_name": "dogwifhat",
-        "price_usd": "2.45",
-        "market_cap_usd": 2450000000.0,
-        "fdv_usd": 2450000000.0,
-        "liquidity_usd": 15420000.0,
-        "volume_24h_usd": 185000000.0,
-        "price_change_24h_pct": 5.2,
-        "txns_24h_buys": 14200,
-        "txns_24h_sells": 11800,
-        "holder_count": 185400,
-        "smart_money_wallets": 42,
-        "top10_holder_pct": 18,
-        "mint_disabled": True,
-        "freeze_disabled": True,
-        "lp_burned_pct": 100,
-        "detected_risks": []
-    })
-
-    print(f"[*] Executing audit_token for WIF ({wif_ca})...")
-    contract.audit_token(wif_ca, request_id="req_pytest_wif_demo_1", payment_amount=1000, telemetry_json=wif_telemetry)
-
-    report = contract.get_audit(wif_ca)
-    print("\n" + "=" * 65)
-    print(" ON-CHAIN AUDIT CONSENSUS RESULT:")
-    print("=" * 65)
-    print(json.dumps(report, indent=2))
-    print("=" * 65)
-    print(f"Safety Score:   {report.get('safety_score')}/100")
-    print(f"Threat Verdict:  {report.get('verdict')}")
-    print(f"Mint Revoked:   {report.get('mint_disabled')}")
-    print(f"Freeze Revoked: {report.get('freeze_disabled')}")
-    print(f"AI Summary:     {report.get('ai_summary')}")
-    print("=" * 65 + "\n")
-    assert report["has_audit"] is True
-    assert report["safety_score"] == 100
-    assert report["verdict"] == "SAFE_TO_TRADE"
-
-
-def test_run_sgl_token_audit(direct_deploy):
-    print("\n" + "=" * 65)
-    print(" GENMEME GUARD -- RUNNING AUDIT FOR SGL TOKEN WITH REAL SMALL-CAP DATA")
-    print("=" * 65)
-    contract = direct_deploy("contracts/meme_rug_auditor.py")
-    sgl_ca = "5c4HyD2rSShqnTsf5z3SaoD2H3GE452u2CUuYjviBAGS"
-
-    # Real SGL Metrics: ~$350k Market Cap, ~$35k Liquidity, 1,200 holders, 3 smart money wallets
-    sgl_telemetry = json.dumps({
-        "token_symbol": "SGL",
-        "token_name": "Solana GenLayer",
-        "price_usd": "0.0035",
-        "market_cap_usd": 350000.0,
-        "fdv_usd": 350000.0,
-        "liquidity_usd": 35000.0,
-        "volume_24h_usd": 95000.0,
-        "price_change_24h_pct": -4.2,
-        "txns_24h_buys": 320,
-        "txns_24h_sells": 390,
-        "holder_count": 1200,
-        "smart_money_wallets": 3,
-        "top10_holder_pct": 28,
-        "mint_disabled": True,
-        "freeze_disabled": True,
-        "lp_burned_pct": 100,
-        "detected_risks": []
-    })
-
-    print(f"[*] Executing audit_token for real SGL metrics ({sgl_ca})...")
-    contract.audit_token(sgl_ca, request_id="req_pytest_sgl_demo_real", payment_amount=1000, telemetry_json=sgl_telemetry)
-
-    report = contract.get_audit(sgl_ca)
-    print("\n" + "=" * 65)
-    print(" REAL SGL TOKEN ON-CHAIN AUDIT CONSENSUS RESULT:")
-    print("=" * 65)
-    print(json.dumps(report, indent=2))
-    print("=" * 65)
-    print(f"Safety Score:   {report.get('safety_score')}/100")
-    print(f"Threat Verdict:  {report.get('verdict')}")
-    print(f"Mint Revoked:   {report.get('mint_disabled')}")
-    print(f"Freeze Revoked: {report.get('freeze_disabled')}")
-    print(f"AI Summary:     {report.get('ai_summary')}")
-    print("=" * 65 + "\n")
-    assert report["has_audit"] is True
-    assert report["token_address"] == sgl_ca
-    assert report["token_symbol"] == "SGL"
-    assert report["safety_score"] == 40  # REAL SGL SCORES 40/100 (TIER 2 SMALL-CAP SPECULATIVE)!
-    assert report["verdict"] == "CRITICAL_RUG_RISK"
-
-
-def test_run_micro_cap_scam_audit(direct_deploy):
-    print("\n" + "=" * 65)
-    print(" GENMEME GUARD -- AUDIT TEST FOR MICRO-CAP RUG SCAM COIN")
-    print("=" * 65)
-    contract = direct_deploy("contracts/meme_rug_auditor.py")
-    scam_ca = "ScamPUMP11111111111111111111111111111111111111"
-
-    scam_telemetry = json.dumps({
-        "token_symbol": "PUMP_SCAM",
-        "token_name": "Pump Dump Rug Coin",
-        "price_usd": "0.000012",
-        "market_cap_usd": 12000.0,
-        "fdv_usd": 12000.0,
-        "liquidity_usd": 2500.0,
-        "volume_24h_usd": 85000.0,
-        "price_change_24h_pct": -45.2,
-        "txns_24h_buys": 120,
-        "txns_24h_sells": 890,
-        "holder_count": 85,
-        "smart_money_wallets": 1,
-        "top10_holder_pct": 78,
-        "mint_disabled": False,  # Active Mint Authority!
-        "freeze_disabled": False, # Active Freeze Authority!
-        "lp_burned_pct": 15,     # Unlocked LP!
-        "detected_risks": ["Active Mint Authority", "Active Freeze Authority", "Unlocked Liquidity"]
-    })
-
-    contract.audit_token(scam_ca, request_id="req_pytest_scam_1", payment_amount=1000, telemetry_json=scam_telemetry)
-    report = contract.get_audit(scam_ca)
-    print(json.dumps(report, indent=2))
-    print("=" * 65)
-    print(f"Safety Score:   {report.get('safety_score')}/100")
-    print(f"Threat Verdict:  {report.get('verdict')}")
-    print("=" * 65 + "\n")
-    assert report["has_audit"] is True
-    assert report["safety_score"] == 0  # DYNAMICALLY SCORED AT 0/100!
-    assert report["verdict"] == "CRITICAL_RUG_RISK"
-    assert report["mint_disabled"] is False
-    assert report["freeze_disabled"] is False
-
-
-def test_run_small_cap_speculative_audit(direct_deploy):
-    print("\n" + "=" * 65)
-    print(" GENMEME GUARD -- AUDIT TEST FOR SMALL-CAP SPECULATIVE COIN")
-    print("=" * 65)
-    contract = direct_deploy("contracts/meme_rug_auditor.py")
-    small_ca = "SmallCap444444444444444444444444444444444444"
-
-    small_telemetry = json.dumps({
-        "token_symbol": "MID_CAP",
-        "token_name": "Speculative Meme Coin",
-        "price_usd": "0.045",
-        "market_cap_usd": 450000.0,
-        "fdv_usd": 450000.0,
-        "liquidity_usd": 45000.0,
-        "volume_24h_usd": 120000.0,
-        "price_change_24h_pct": -8.5,
-        "txns_24h_buys": 450,
-        "txns_24h_sells": 520,
-        "holder_count": 850,
-        "smart_money_wallets": 4,
-        "top10_holder_pct": 28,
-        "mint_disabled": True,
-        "freeze_disabled": True,
-        "lp_burned_pct": 100,
-        "detected_risks": []
-    })
-
-    contract.audit_token(small_ca, request_id="req_pytest_small_1", payment_amount=1000, telemetry_json=small_telemetry)
-    report = contract.get_audit(small_ca)
-    print(json.dumps(report, indent=2))
-    print("=" * 65)
-    print(f"Safety Score:   {report.get('safety_score')}/100")
-    print(f"Threat Verdict:  {report.get('verdict')}")
-    print("=" * 65 + "\n")
-    assert report["has_audit"] is True
-    assert report["safety_score"] == 30  # DYNAMICALLY SCORED AT 30/100 (CAPPED AT TIER 2 & PENALIZED FOR DUMP PRESSURE)!
-    assert report["verdict"] == "CRITICAL_RUG_RISK"
 
 
 WIF_CA = "EKpQGSJtjMFqKZ9KQanSqYXRcF8fBopzLHYxdM65zcjm"
@@ -429,59 +285,49 @@ BLUECHIP_TELEMETRY = json.dumps({
 
 
 def test_llm_verdict_drives_stored_report(direct_vm, direct_deploy, direct_alice):
-    """The on-chain LLM round, not local arithmetic, decides the stored report.
+    """The on-chain LLM round decides the stored report.
 
-    The same bluechip telemetry scores 100/SAFE_TO_TRADE through the
-    deterministic engine (see test_run_live_demo_audit). Here the model
-    returns 63/HIGH_VOLATILITY_WARN instead, so if the stored report reads 63
-    the verdict provably came from the LLM and not from local scoring.
+    Bluechip telemetry with revoked authorities and $15M liquidity is about as
+    strong as this rubric gets, yet the model returns 63/HIGH_VOLATILITY_WARN
+    and that is exactly what lands on chain — the number and the wording both
+    come from the model, not from anything the contract could have computed.
     """
     direct_vm.sender = direct_alice
-    direct_vm.mock_llm(r".*", json.dumps({
-        "token_address": WIF_CA,
-        "token_symbol": "WIF",
-        "safety_score": 63,
-        "verdict": "HIGH_VOLATILITY_WARN",
-        "mint_disabled": True,
-        "freeze_disabled": True,
-        "lp_burned_pct": 100,
-        "top10_holder_pct": 18,
-        "holder_count": 185400,
-        "smart_money_wallets": 42,
-        "risk_factors": ["Model-flagged momentum exhaustion after parabolic run"],
-        "ai_summary": "Model brief: elevated volatility despite deep liquidity.",
-    }))
+    direct_vm.mock_llm(r".*", llm_verdict(
+        safety_score=63,
+        verdict="HIGH_VOLATILITY_WARN",
+        risk_factors=["Model-flagged momentum exhaustion after parabolic run"],
+        ai_summary="Model brief: elevated volatility despite deep liquidity.",
+    ))
 
-    contract = direct_deploy("contracts/meme_rug_auditor.py")
+    contract = direct_deploy(CONTRACT)
     contract.audit_token(WIF_CA, request_id="req_llm_drives_1", payment_amount=1000,
                          telemetry_json=BLUECHIP_TELEMETRY)
 
     report = contract.get_audit(WIF_CA)
     assert report["analysis_source"] == "llm_consensus"
-    assert report["llm_error"] == ""
     assert report["safety_score"] == 63
-    assert report["safety_score"] != 100  # 100 is what local scoring would have produced
     assert report["verdict"] == "HIGH_VOLATILITY_WARN"
     assert "momentum exhaustion" in report["risk_factors"][0]
+    assert report["ai_summary"] == "Model brief: elevated volatility despite deep liquidity."
 
 
-def test_llm_failure_is_recorded_not_masked(direct_vm, direct_deploy, direct_alice):
-    """When the LLM round is unavailable the report says so instead of passing
-    a locally computed score off as a consensus verdict."""
+def test_audit_reverts_when_llm_round_unavailable(direct_vm, direct_deploy, direct_alice):
+    """No model, no report. There is no local scoring path to fall back on, so
+    the transaction reverts rather than storing a fabricated audit."""
     direct_vm.sender = direct_alice
-    contract = direct_deploy("contracts/meme_rug_auditor.py")
-    contract.audit_token(WIF_CA, request_id="req_llm_missing_1", payment_amount=1000,
-                         telemetry_json=BLUECHIP_TELEMETRY)
+    contract = direct_deploy(CONTRACT)
 
-    report = contract.get_audit(WIF_CA)
-    assert report["analysis_source"] == "deterministic_fallback"
-    assert report["llm_error"] != ""
-    assert report["llm_error"].split(":")[0] in {"TRANSIENT", "EXTERNAL", "LLM_ERROR"}
+    with pytest.raises(Exception, match="LLM consensus round unavailable"):
+        contract.audit_token(WIF_CA, request_id="req_llm_missing_1", payment_amount=1000,
+                             telemetry_json=BLUECHIP_TELEMETRY)
+
+    assert contract.get_audit(WIF_CA)["has_audit"] is False
 
 
-def test_malformed_llm_response_is_rejected(direct_vm, direct_deploy, direct_alice):
-    """A model reply that misses the schema or leaves the valid range is not
-    trusted — it is rejected and recorded, never stored as a verdict."""
+def test_audit_reverts_on_malformed_llm_response(direct_vm, direct_deploy, direct_alice):
+    """A reply that breaks the schema or leaves the valid range is untrusted,
+    and an untrusted reply aborts the audit instead of being stored."""
     direct_vm.sender = direct_alice
     direct_vm.mock_llm(r".*", json.dumps({
         "token_symbol": "WIF",
@@ -490,15 +336,76 @@ def test_malformed_llm_response_is_rejected(direct_vm, direct_deploy, direct_ali
         "ai_summary": "",
     }))
 
-    contract = direct_deploy("contracts/meme_rug_auditor.py")
-    contract.audit_token(WIF_CA, request_id="req_llm_malformed_1", payment_amount=1000,
+    contract = direct_deploy(CONTRACT)
+    with pytest.raises(Exception, match="LLM_ERROR"):
+        contract.audit_token(WIF_CA, request_id="req_llm_malformed_1", payment_amount=1000,
+                             telemetry_json=BLUECHIP_TELEMETRY)
+
+    assert contract.get_audit(WIF_CA)["has_audit"] is False
+
+
+@pytest.mark.parametrize("symbol,score,verdict", [
+    ("BLUE", 91, "SAFE_TO_TRADE"),
+    ("MIDC", 64, "HIGH_VOLATILITY_WARN"),
+    ("MICR", 22, "CRITICAL_RUG_RISK"),
+])
+def test_distinct_tokens_store_distinct_verdicts(direct_vm, direct_deploy, direct_alice,
+                                                 symbol, score, verdict):
+    """Each token carries through its own model verdict rather than collapsing
+    onto one canned result."""
+    direct_vm.sender = direct_alice
+    direct_vm.mock_llm(r".*", llm_verdict(
+        token_symbol=symbol, safety_score=score, verdict=verdict,
+        ai_summary=f"{symbol} brief at {score}/100.",
+    ))
+
+    contract = direct_deploy(CONTRACT)
+    contract.audit_token(WIF_CA, request_id=f"req_tier_{symbol}", payment_amount=1000,
                          telemetry_json=BLUECHIP_TELEMETRY)
 
     report = contract.get_audit(WIF_CA)
-    assert report["analysis_source"] == "deterministic_fallback"
-    assert report["llm_error"].startswith("LLM_ERROR")
-    assert report["safety_score"] <= 100
-    assert report["verdict"] in {"SAFE_TO_TRADE", "HIGH_VOLATILITY_WARN", "CRITICAL_RUG_RISK"}
+    assert report["token_symbol"] == symbol
+    assert report["safety_score"] == score
+    assert report["verdict"] == verdict
+    assert report["analysis_source"] == "llm_consensus"
+
+
+def test_audit_reverts_without_authority_evidence(direct_vm, direct_deploy, direct_alice):
+    """Authority status unknown means nothing can be certified. RugCheck
+    returning an empty payload must not be read as 'authorities revoked'."""
+    direct_vm.sender = direct_alice
+    mock_live_sources(direct_vm, rugcheck={})
+    direct_vm.mock_llm(r".*", llm_verdict())
+
+    contract = direct_deploy(CONTRACT)
+    market_only_telemetry = json.dumps({
+        "token_symbol": "WIF",
+        "fdv_usd": 2450000000.0,
+        "liquidity_usd": 15420000.0,
+        "volume_24h_usd": 185000000.0,
+        "txns_24h_buys": 14200,
+        "txns_24h_sells": 11800,
+        # deliberately no mint_disabled / freeze_disabled
+    })
+
+    with pytest.raises(Exception, match="authority status unavailable"):
+        contract.audit_token(WIF_CA, request_id="req_no_authority_1", payment_amount=1000,
+                             telemetry_json=market_only_telemetry)
+
+    assert contract.get_audit(WIF_CA)["has_audit"] is False
+
+
+def test_audit_reverts_without_market_data(direct_vm, direct_deploy, direct_alice):
+    """A mint with no reachable liquidity cannot be scored on real numbers."""
+    direct_vm.sender = direct_alice
+    mock_live_sources(direct_vm, dex={"pairs": []})
+    direct_vm.mock_llm(r".*", llm_verdict())
+
+    contract = direct_deploy(CONTRACT)
+    with pytest.raises(Exception, match="no live market data"):
+        contract.audit_token(WIF_CA, request_id="req_no_market_1", payment_amount=1000)
+
+    assert contract.get_audit(WIF_CA)["has_audit"] is False
 
 
 def test_llm_cannot_override_authority_findings(direct_vm, direct_deploy, direct_alice):

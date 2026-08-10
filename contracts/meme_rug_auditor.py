@@ -70,10 +70,10 @@ SCORE_TOLERANCE = 10
 ALLOWED_VERDICTS = {"SAFE_TO_TRADE", "HIGH_VOLATILITY_WARN", "CRITICAL_RUG_RISK"}
 MIN_AUDIT_FEE = u256(1000)
 
-# Provenance markers so every stored report states whether the verdict came
-# from the on-chain LLM consensus round or from the deterministic fallback.
+# Every stored report carries its provenance. There is deliberately no second
+# value here: a verdict only ever comes from the on-chain LLM consensus round,
+# and an audit that cannot reach one reverts instead of storing anything.
 SOURCE_LLM = "llm_consensus"
-SOURCE_FALLBACK = "deterministic_fallback"
 
 VERDICT_SEVERITY = {"SAFE_TO_TRADE": 0, "HIGH_VOLATILITY_WARN": 1, "CRITICAL_RUG_RISK": 2}
 
@@ -107,8 +107,7 @@ def _safe_int(val, default=0) -> int:
 def _check_equivalence(res1: dict, res2: dict) -> bool:
     if not isinstance(res1, dict) or not isinstance(res2, dict):
         return False
-    # A node that reached its verdict through the LLM round and one that fell
-    # back to local arithmetic did not audit the same way, so they are not
+    # Two nodes that did not reach their verdicts the same way are not
     # equivalent even when the numbers happen to line up.
     if res1.get("analysis_source") != res2.get("analysis_source"):
         return False
@@ -136,8 +135,8 @@ def _resolve_symbol(token_address: str, raw_symbol) -> str:
 
 
 def _classify_llm_error(exc) -> str:
-    """Tag an LLM failure with a deterministic prefix so the stored report
-    says why the consensus round could not be used."""
+    """Tag an LLM failure with a deterministic prefix so the revert message
+    says why the consensus round could not be completed."""
     msg = str(exc).strip() or exc.__class__.__name__
     low = msg.lower()
     if "timeout" in low or "timed out" in low or "unavailable" in low:
@@ -158,9 +157,8 @@ def _band_verdict(score: int) -> str:
 def _normalize_llm_report(raw, token_address: str) -> dict:
     """Strictly validate an LLM audit response.
 
-    Returns {} when the response cannot be trusted, so the caller records an
-    explicit failure instead of silently substituting a locally computed
-    result that looks like it came from the model.
+    Returns {} when the response cannot be trusted, which aborts the audit.
+    Nothing downstream may substitute a locally computed stand-in.
     """
     parsed = raw
     if isinstance(raw, str):
@@ -268,7 +266,6 @@ class AuditRecord:
     audited_at_block: u64
     paid_amount: u256
     analysis_source: str
-    llm_error: str
 
 
 class MemeRugAuditor(gl.Contract):
@@ -289,7 +286,11 @@ class MemeRugAuditor(gl.Contract):
         """
         Executes Non-Deterministic Web Data Fetch & Multi-Node LLM Equivalence Principle Consensus.
         Binds one-time payment & verified caller authorization to unique request_id.
-        Accepts verified live DEX & security telemetry payload to guarantee exact numerical metrics in LLM evaluation.
+
+        The audit fails closed. If the live market and authority evidence is not
+        available, or the LLM consensus round cannot produce a verdict that
+        passes validation, the transaction reverts and no report is stored —
+        there is no local scoring path that could stand in for the model.
         """
         caller = gl.message.sender_address
 
@@ -341,15 +342,24 @@ class MemeRugAuditor(gl.Contract):
                             "volume_to_liquidity_ratio": round(vol_usd / max(liq_usd, 1.0), 2)
                         }
 
-                        tele_security = {
-                            "mint_authority_disabled": bool(parsed_tele.get("mint_disabled", True)),
-                            "freeze_authority_disabled": bool(parsed_tele.get("freeze_disabled", True)),
-                            "lp_burned_pct": _safe_int(parsed_tele.get("lp_burned_pct"), 100),
-                            "top10_holder_pct": _safe_int(parsed_tele.get("top10_holder_pct"), 20),
-                            "holder_count": _safe_int(parsed_tele.get("holder_count"), 1200),
-                            "smart_money_wallets": _safe_int(parsed_tele.get("smart_money_wallets"), 8),
-                            "detected_risks": parsed_tele.get("detected_risks") if isinstance(parsed_tele.get("detected_risks"), list) else []
-                        }
+                        # Only carry over metrics the caller actually supplied.
+                        # Defaulting a missing authority flag to "disabled" would
+                        # invent a clean bill of health out of absent evidence.
+                        tele_security = {}
+                        if "mint_disabled" in parsed_tele and parsed_tele.get("mint_disabled") is not None:
+                            tele_security["mint_authority_disabled"] = bool(parsed_tele.get("mint_disabled"))
+                        if "freeze_disabled" in parsed_tele and parsed_tele.get("freeze_disabled") is not None:
+                            tele_security["freeze_authority_disabled"] = bool(parsed_tele.get("freeze_disabled"))
+                        for tele_key, sec_key in (
+                            ("lp_burned_pct", "lp_burned_pct"),
+                            ("top10_holder_pct", "top10_holder_pct"),
+                            ("holder_count", "holder_count"),
+                            ("smart_money_wallets", "smart_money_wallets"),
+                        ):
+                            if tele_key in parsed_tele and parsed_tele.get(tele_key) is not None:
+                                tele_security[sec_key] = _safe_int(parsed_tele.get(tele_key))
+                        if isinstance(parsed_tele.get("detected_risks"), list):
+                            tele_security["detected_risks"] = parsed_tele.get("detected_risks")
                 except Exception:
                     pass
 
@@ -424,14 +434,19 @@ class MemeRugAuditor(gl.Contract):
                 tok_info = raw_sec.get("token") if isinstance(raw_sec.get("token"), dict) else (raw_sec.get("data") if isinstance(raw_sec.get("data"), dict) else {})
                 risks_list = raw_sec.get("risks") if isinstance(raw_sec.get("risks"), list) else []
 
+                # An empty payload means RugCheck told us nothing. Reading a
+                # missing mintAuthority as "revoked" would manufacture evidence,
+                # so the flags are only set when the field is really there.
                 security_metrics = {
-                    "mint_authority_disabled": not bool(tok_info.get("mintAuthority")),
-                    "freeze_authority_disabled": not bool(tok_info.get("freezeAuthority")),
                     "detected_risks": [str(r.get("name")) for r in risks_list if isinstance(r, dict) and "name" in r],
                     "rugcheck_score": _safe_int(raw_sec.get("score")),
                 }
+                if "mintAuthority" in tok_info:
+                    security_metrics["mint_authority_disabled"] = not bool(tok_info.get("mintAuthority"))
+                if "freezeAuthority" in tok_info:
+                    security_metrics["freeze_authority_disabled"] = not bool(tok_info.get("freezeAuthority"))
             except Exception as e:
-                security_metrics = {"status": "security_fallback", "error": str(e)}
+                security_metrics = {"status": "security_unavailable", "error": str(e)}
 
             tech_summary_json = json.dumps({
                 "token_address": token_address,
@@ -455,178 +470,42 @@ class MemeRugAuditor(gl.Contract):
                     if "freeze_authority_disabled" in src:
                         ground_truth["freeze_authority_disabled"] = src["freeze_authority_disabled"]
 
-            # Non-deterministic LLM round. Failures are recorded, never swallowed:
-            # a silently substituted local result would be indistinguishable from
-            # a real consensus verdict.
-            llm_error = ""
+            # An auditor that cannot see the token's authority status cannot
+            # certify anything about it. Rather than assume a clean default,
+            # the audit fails closed so no report is ever written from absent
+            # evidence.
+            if "mint_authority_disabled" not in ground_truth or "freeze_authority_disabled" not in ground_truth:
+                raise gl.vm.UserError(
+                    "EXTERNAL: mint/freeze authority status unavailable from RugCheck "
+                    "and caller telemetry — refusing to audit without on-chain evidence."
+                )
+            if not dex_metrics or _safe_float(dex_metrics.get("liquidity_usd")) <= 0.0:
+                raise gl.vm.UserError(
+                    "EXTERNAL: no live market data for this mint from DEXScreener "
+                    "or caller telemetry — refusing to audit without real liquidity."
+                )
+
+            # Non-deterministic LLM round. This is the only source of a verdict:
+            # there is no local scoring path that could stand in for it, so a
+            # failed or untrusted round aborts the transaction instead of
+            # storing a fabricated report.
             try:
                 response = gl.nondet.exec_prompt(prompt, response_format="json")
-                llm_report = _normalize_llm_report(response, token_address)
-                if not llm_report:
-                    llm_error = "LLM_ERROR: response failed schema or range validation"
             except Exception as e:
-                llm_report = {}
-                llm_error = _classify_llm_error(e)
+                raise gl.vm.UserError(
+                    f"LLM consensus round unavailable — {_classify_llm_error(e)}"
+                )
 
-            if llm_report:
-                llm_report = _validate_findings(llm_report, ground_truth)
-                llm_report["analysis_source"] = SOURCE_LLM
-                llm_report["llm_error"] = ""
-                return llm_report
+            llm_report = _normalize_llm_report(response, token_address)
+            if not llm_report:
+                raise gl.vm.UserError(
+                    "LLM_ERROR: model response failed schema, verdict or score-range "
+                    "validation — refusing to store an untrusted audit."
+                )
 
-            # Deterministic fallback over the fetched telemetry, tagged so the
-            # stored report never passes itself off as an LLM verdict.
-            symbol = _resolve_symbol(token_address, dex_metrics.get("token_symbol"))
-
-            # Check explicit authority status if API / telemetry returned valid status
-            mint_dis = tele_security.get("mint_authority_disabled") if "mint_authority_disabled" in tele_security else security_metrics.get("mint_authority_disabled", True)
-            freeze_dis = tele_security.get("freeze_authority_disabled") if "freeze_authority_disabled" in tele_security else security_metrics.get("freeze_authority_disabled", True)
-            lp_burned = tele_security.get("lp_burned_pct", 100) if "lp_burned_pct" in tele_security else security_metrics.get("lp_burned_pct", 100)
-            top10_pct = tele_security.get("top10_holder_pct", 20) if "top10_holder_pct" in tele_security else security_metrics.get("top10_holder_pct", 20)
-            holder_cnt = _safe_int(tele_security.get("holder_count"), 1200)
-            smart_wallets = _safe_int(tele_security.get("smart_money_wallets"), 8)
-            risks = list(tele_security.get("detected_risks", [])) if "detected_risks" in tele_security else list(security_metrics.get("detected_risks", []))
-
-            liq_val = _safe_float(dex_metrics.get("liquidity_usd"))
-            fdv_val = _safe_float(dex_metrics.get("fdv_usd"))
-            buys_val = _safe_int(dex_metrics.get("txns_24h_buys"))
-            sells_val = _safe_int(dex_metrics.get("txns_24h_sells"))
-            vol_val = _safe_float(dex_metrics.get("volume_24h_usd"))
-            p_chg = _safe_float(dex_metrics.get("price_change_24h_pct"))
-            sentiment = dex_metrics.get("smart_money_sentiment", "NEUTRAL")
-
-            # SCALE-TIER ARCHITECTURE: Baseline & Ceiling driven by Market Cap Scale
-            max_score_ceiling = 100
-            tier_name = "Tier 4 Institutional Bluechip"
-
-            if fdv_val < 100000 or liq_val < 20000:
-                max_score_ceiling = 55
-                tier_name = "Tier 1 Micro-Cap Dump Hazard"
-                score = 40
-                if f"Tier 1 Micro-Cap Risk (${fdv_val:,.0f} USD Market Cap / ${liq_val:,.0f} USD Liq)" not in risks:
-                    risks.append(f"Tier 1 Micro-Cap Risk (${fdv_val:,.0f} USD Market Cap / ${liq_val:,.0f} USD Liq)")
-            elif fdv_val < 1000000:
-                max_score_ceiling = 75
-                tier_name = "Tier 2 Small-Cap Speculative"
-                score = 55
-            elif fdv_val < 10000000:
-                max_score_ceiling = 88
-                tier_name = "Tier 3 Mid-Cap Established"
-                score = 70
-            else:
-                max_score_ceiling = 100
-                tier_name = "Tier 4 Institutional Bluechip"
-                score = 75
-                if liq_val > 500000:
-                    score += 15
-
-            # 1. Authority Controls
-            if not mint_dis:
-                score -= 50
-                if "Mint Authority Active — Inflation Danger" not in risks:
-                    risks.append("Mint Authority Active — Inflation Danger")
-            if not freeze_dis:
-                score -= 50
-                if "Freeze Authority Active — Honeypot Lock Danger" not in risks:
-                    risks.append("Freeze Authority Active — Honeypot Lock Danger")
-            if lp_burned < 50:
-                score -= 40
-                if "Unlocked Liquidity Warning (LP Burn < 50%)" not in risks:
-                    risks.append("Unlocked Liquidity Warning (LP Burn < 50%)")
-            elif lp_burned < 80:
-                score -= 20
-                if "Moderate Unlocked Liquidity (LP Burn < 80%)" not in risks:
-                    risks.append("Moderate Unlocked Liquidity (LP Burn < 80%)")
-            elif lp_burned >= 95:
-                score += 5
-
-            # 2. Birdeye Holder & Smart Money Distribution
-            if holder_cnt < 150:
-                score -= 25
-                if f"Low Holder Count Danger ({holder_cnt} holders)" not in risks:
-                    risks.append(f"Low Holder Count Danger ({holder_cnt} holders)")
-            elif holder_cnt > 10000:
-                score += 15
-            elif holder_cnt > 3000:
-                score += 8
-
-            if smart_wallets < 3:
-                score -= 20
-                if f"Retail Trap Warning — Insufficient Smart Money Wallets ({smart_wallets})" not in risks:
-                    risks.append(f"Retail Trap Warning — Insufficient Smart Money Wallets ({smart_wallets})")
-            elif smart_wallets >= 15:
-                score += 15
-            elif smart_wallets >= 8:
-                score += 5
-
-            if top10_pct > 40:
-                score -= 25
-                if f"Whale Concentration Hazard (Top 10 Holders {top10_pct}%)" not in risks:
-                    risks.append(f"Whale Concentration Hazard (Top 10 Holders {top10_pct}%)")
-
-            # 3. Smart Money Orderbook Inflow / Outflow Ratio
-            bs_ratio = buys_val / max(sells_val, 1)
-            if bs_ratio < 0.8:
-                score -= 25
-                if f"Whale Dumping Outflow Pressure ({buys_val} buys vs {sells_val} sells)" not in risks:
-                    risks.append(f"Whale Dumping Outflow Pressure ({buys_val} buys vs {sells_val} sells)")
-            elif bs_ratio < 1.0:
-                score -= 10
-            elif bs_ratio > 1.4:
-                score += 10
-
-            # 4. Volume Turnover & Slippage Ratio (Turnover is normalized for multi-million bluechip liquidity)
-            vol_to_liq = vol_val / max(liq_val, 1.0)
-            if liq_val < 500000:
-                if vol_to_liq > 4.0:
-                    score -= 20
-                    if f"Elevated Volume Turnover / Slippage Danger ({vol_to_liq:.1f}x)" not in risks:
-                        risks.append(f"Elevated Volume Turnover / Slippage Danger ({vol_to_liq:.1f}x)")
-                elif vol_to_liq > 2.5:
-                    score -= 10
-
-            # 5. Price Trajectory
-            if p_chg < -20.0:
-                score -= 20
-                if f"Heavy 24h Price Downward Spiral ({p_chg:+.1f}%)" not in risks:
-                    risks.append(f"Heavy 24h Price Downward Spiral ({p_chg:+.1f}%)")
-            elif p_chg < -5.0:
-                score -= 10
-            elif p_chg > 10.0:
-                score += 5
-
-            score = max(0, min(max_score_ceiling, score))
-
-            if score < 50 or not mint_dis or not freeze_dis:
-                verdict = "CRITICAL_RUG_RISK"
-            elif score < 80:
-                verdict = "HIGH_VOLATILITY_WARN"
-            else:
-                verdict = "SAFE_TO_TRADE"
-
-            rich_ai_summary = (
-                f"Formal Birdeye Forensic Audit Verdict: {verdict} (Score {score}/100) — [{tier_name}]. "
-                f"Contract hooks status: Mint authority {'Disabled (Safe)' if mint_dis else 'ACTIVE (INFLATION HAZARD)'}, Freeze authority {'Disabled (Safe)' if freeze_dis else 'ACTIVE (HONEYPOT HAZARD)'}, LP Burned {lp_burned}%. "
-                f"Birdeye On-Chain Metrics: Market Cap ${fdv_val:,.0f} USD, Holder Count {holder_cnt:,}, Smart Money Wallets {smart_wallets} ({'Verified Smart Money Accumulation' if smart_wallets >= 10 else 'Retail Warning'}), Top 10 Holders {top10_pct}%. "
-                f"DEX Trading Telemetry: Liquidity ${liq_val:,.0f} USD, 24h Volume ${vol_val:,.0f} USD ({vol_to_liq:.1f}x turnover), Price Trend {p_chg:+.1f}%, Orderbook Inflow: {buys_val} buys vs {sells_val} sells ({bs_ratio:.2f}x buy pressure)."
-            )
-
-            return {
-                "token_address": token_address,
-                "token_symbol": symbol,
-                "safety_score": score,
-                "verdict": verdict,
-                "mint_disabled": mint_dis,
-                "freeze_disabled": freeze_dis,
-                "lp_burned_pct": lp_burned,
-                "top10_holder_pct": top10_pct,
-                "holder_count": holder_cnt,
-                "smart_money_wallets": smart_wallets,
-                "risk_factors": risks if risks else ["Volatile Meme Market Dynamics"],
-                "ai_summary": rich_ai_summary,
-                "analysis_source": SOURCE_FALLBACK,
-                "llm_error": llm_error
-            }
+            llm_report = _validate_findings(llm_report, ground_truth)
+            llm_report["analysis_source"] = SOURCE_LLM
+            return llm_report
 
         def validator_fn(leaders_res) -> bool:
             # Real validator consensus: each validator INDEPENDENTLY re-runs the
@@ -666,8 +545,7 @@ class MemeRugAuditor(gl.Contract):
         if not isinstance(risk_list, list):
             risk_list = ["Unspecified risk signal"]
         ai_sum = str(consensus_output.get("ai_summary", "Audit completed."))
-        analysis_source = str(consensus_output.get("analysis_source", SOURCE_FALLBACK))
-        llm_error = str(consensus_output.get("llm_error", ""))
+        analysis_source = str(consensus_output.get("analysis_source", SOURCE_LLM))
 
         rec = AuditRecord(
             request_id=request_id,
@@ -684,8 +562,7 @@ class MemeRugAuditor(gl.Contract):
             ai_summary=ai_sum,
             audited_at_block=0,
             paid_amount=payment_amount,
-            analysis_source=analysis_source,
-            llm_error=llm_error
+            analysis_source=analysis_source
         )
 
         self.audited_records[token_address] = rec
@@ -715,7 +592,6 @@ class MemeRugAuditor(gl.Contract):
             "risk_factors": risk_list,
             "ai_summary": ai_sum,
             "analysis_source": analysis_source,
-            "llm_error": llm_error,
             "paid_amount": str(payment_amount)
         })
 
@@ -744,7 +620,6 @@ class MemeRugAuditor(gl.Contract):
                 "risk_factors": risks,
                 "ai_summary": rec.ai_summary,
                 "analysis_source": rec.analysis_source,
-                "llm_error": rec.llm_error,
                 "audited_at_block": rec.audited_at_block,
                 "paid_amount": str(rec.paid_amount)
             }
@@ -787,7 +662,6 @@ class MemeRugAuditor(gl.Contract):
                 "risk_factors": risks,
                 "ai_summary": rec.ai_summary,
                 "analysis_source": rec.analysis_source,
-                "llm_error": rec.llm_error,
                 "paid_amount": str(rec.paid_amount)
             }
 

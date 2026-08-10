@@ -71,7 +71,6 @@ def _print_report(title, report):
     print(json.dumps(report, indent=2))
     print("-" * 68)
     print(f"Analysis Source: {report.get('analysis_source')}")
-    print(f"LLM Error:       {report.get('llm_error') or '(none)'}")
     print(f"Safety Score:    {report.get('safety_score')}/100")
     print(f"Threat Verdict:  {report.get('verdict')}")
     print(f"Mint Revoked:    {report.get('mint_disabled')}")
@@ -86,12 +85,21 @@ def run_audit(label, request_id, llm_response=None):
         if llm_response is not None:
             vm.mock_llm(r".*", llm_response)
         contract = deploy_contract(CONTRACT, vm)
-        contract.audit_token(
-            WIF_CA,
-            request_id=request_id,
-            payment_amount=1000,
-            telemetry_json=WIF_TELEMETRY,
-        )
+        try:
+            contract.audit_token(
+                WIF_CA,
+                request_id=request_id,
+                payment_amount=1000,
+                telemetry_json=WIF_TELEMETRY,
+            )
+        except Exception as e:
+            print("\n" + "=" * 68)
+            print(f" {label}")
+            print("=" * 68)
+            print(f"Transaction reverted: {e}")
+            print(f"Stored report: {contract.get_audit(WIF_CA).get('has_audit')}")
+            print("=" * 68)
+            return
         _print_report(label, contract.get_audit(WIF_CA))
 
 
@@ -107,11 +115,11 @@ def main():
         llm_response=LLM_VERDICT,
     )
 
-    # No LLM reachable: the report falls back to local scoring and says so,
-    # rather than passing local arithmetic off as a consensus verdict.
+    # No LLM reachable: the audit fails closed, so nothing is written rather
+    # than a locally computed score being passed off as a consensus verdict.
     run_audit(
-        "AUDIT WITH LLM ROUND UNAVAILABLE (FALLBACK, TAGGED)",
-        "req_demo_wif_fallback",
+        "AUDIT WITH LLM ROUND UNAVAILABLE (FAILS CLOSED)",
+        "req_demo_wif_no_llm",
     )
 
 

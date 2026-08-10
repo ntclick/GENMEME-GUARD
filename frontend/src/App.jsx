@@ -145,6 +145,15 @@ async function fetchStudioNetOverview(contractAddr) {
   return null;
 }
 
+// Consensus rounds that ended without a stored verdict. The audit fails closed,
+// so these are real outcomes the user has to see, not states worth polling on.
+const TERMINAL_FAILURE_STATUSES = {
+  CANCELED: 'Consensus round was canceled before a verdict was reached.',
+  UNDETERMINED: 'Validators could not agree on a verdict for this token.',
+  LEADER_TIMEOUT: 'The leader node timed out before producing a verdict.',
+  VALIDATORS_TIMEOUT: 'Validator nodes timed out during the consensus round.'
+};
+
 // Poll GenLayer StudioNet RPC for true consensus finality status (FINALIZED / ACCEPTED)
 async function waitForStudioNetReceipt(txHash, onStatusUpdate) {
   for (let i = 0; i < 40; i++) {
@@ -169,7 +178,10 @@ async function waitForStudioNetReceipt(txHash, onStatusUpdate) {
 
       if (status === 'FINALIZED' || status === 'ACCEPTED' || status === 'SUCCESS') {
         if (onStatusUpdate) onStatusUpdate(`✅ Consensus FINALIZED on-chain! Block state committed.`);
-        return true;
+        return { ok: true, status };
+      } else if (TERMINAL_FAILURE_STATUSES[status]) {
+        if (onStatusUpdate) onStatusUpdate(`❌ ${TERMINAL_FAILURE_STATUSES[status]}`);
+        return { ok: false, status };
       } else if (status === 'PROPOSING') {
         if (onStatusUpdate) onStatusUpdate(`🤖 GenLayer LLM Consensus: PROPOSING... (Multi-validator LLMs evaluating token Web APIs)`);
       } else if (status === 'COMMITTING') {
@@ -182,7 +194,7 @@ async function waitForStudioNetReceipt(txHash, onStatusUpdate) {
     }
     await new Promise(r => setTimeout(r, 2500));
   }
-  return false;
+  return { ok: false, status: 'TIMEOUT' };
 }
 
 export default function App() {
@@ -279,33 +291,46 @@ export default function App() {
       });
       const data = await res.json();
       if (data && data.token) {
-        const mintDisabled = !data.token.mintAuthority;
-        const freezeDisabled = !data.token.freezeAuthority;
-        const risks = Array.isArray(data.risks) ? data.risks.map(r => r.name || r) : [];
-        let lpBurnedPct = 100;
-        if (Array.isArray(data.markets) && data.markets.length > 0) {
-          const m = data.markets[0];
-          if (m.lp && typeof m.lp.lpBurnedPct === 'number') {
-            lpBurnedPct = Math.round(m.lp.lpBurnedPct);
-          }
+        // Only report figures RugCheck actually returned. Substituting a
+        // plausible-looking default here would hand the auditor invented
+        // evidence, and a missing authority flag would read as "revoked".
+        const security = {
+          detected_risks: Array.isArray(data.risks) ? data.risks.map(r => r.name || r) : []
+        };
+
+        if ('mintAuthority' in data.token) {
+          security.mint_disabled = !data.token.mintAuthority;
+        }
+        if ('freezeAuthority' in data.token) {
+          security.freeze_disabled = !data.token.freezeAuthority;
+        }
+
+        const market = Array.isArray(data.markets) && data.markets.length > 0 ? data.markets[0] : null;
+        if (market && market.lp && typeof market.lp.lpBurnedPct === 'number') {
+          security.lp_burned_pct = Math.round(market.lp.lpBurnedPct);
         }
 
         const topHolders = Array.isArray(data.topHolders) ? data.topHolders : [];
-        const top10Pct = Math.round(data.topHoldersPct || (topHolders.slice(0, 10).reduce((acc, h) => acc + (h.pct || 0), 0)) || 20);
-        const totalHolders = data.totalHolders || data.holderCount || (topHolders.length > 0 ? topHolders.length * 15 : 1200);
-        
-        // Count verified non-insider smart money wallets from holders list
-        const smartMoneyWalletsCount = topHolders.filter(h => !h.insider && (h.pct || 0) < 5 && (h.pct || 0) > 0.2).length || 8;
+        if (typeof data.topHoldersPct === 'number') {
+          security.top10_holder_pct = Math.round(data.topHoldersPct);
+        } else if (topHolders.length > 0) {
+          security.top10_holder_pct = Math.round(
+            topHolders.slice(0, 10).reduce((acc, h) => acc + (h.pct || 0), 0)
+          );
+        }
 
-        return {
-          mint_disabled: mintDisabled,
-          freeze_disabled: freezeDisabled,
-          lp_burned_pct: lpBurnedPct,
-          top10_holder_pct: top10Pct,
-          holder_count: totalHolders,
-          smart_money_wallets: smartMoneyWalletsCount,
-          detected_risks: risks
-        };
+        const totalHolders = data.totalHolders || data.holderCount;
+        if (typeof totalHolders === 'number') {
+          security.holder_count = totalHolders;
+        }
+
+        if (topHolders.length > 0) {
+          security.smart_money_wallets = topHolders.filter(
+            h => !h.insider && (h.pct || 0) < 5 && (h.pct || 0) > 0.2
+          ).length;
+        }
+
+        return security;
       }
     } catch (e) {
       console.warn('RugCheck security fetch error:', e);
@@ -413,7 +438,10 @@ export default function App() {
       let txHash = null;
       const uniqueRequestId = `req_${(senderAddr || 'anon').slice(-6)}_${tokenAddress.slice(0, 6)}_${Date.now()}`;
 
-      const telemetryPayload = JSON.stringify({
+      // Forward only what the live sources actually returned. The contract
+      // fails closed on missing evidence, so inventing defaults here would
+      // just smuggle guesses past that check.
+      const telemetry = {
         token_symbol: currentPair?.baseToken?.symbol || activePreset || 'TOKEN',
         token_name: currentPair?.baseToken?.name || '',
         price_usd: currentPair?.priceUsd || '0',
@@ -424,14 +452,17 @@ export default function App() {
         price_change_24h_pct: currentPair?.priceChange?.h24 || 0,
         txns_24h_buys: currentPair?.txns?.h24?.buys || 0,
         txns_24h_sells: currentPair?.txns?.h24?.sells || 0,
-        holder_count: currentSecurity ? currentSecurity.holder_count : 1200,
-        smart_money_wallets: currentSecurity ? currentSecurity.smart_money_wallets : 8,
-        top10_holder_pct: currentSecurity ? currentSecurity.top10_holder_pct : 20,
-        mint_disabled: currentSecurity ? currentSecurity.mint_disabled : true,
-        freeze_disabled: currentSecurity ? currentSecurity.freeze_disabled : true,
-        lp_burned_pct: currentSecurity ? currentSecurity.lp_burned_pct : 100,
-        detected_risks: currentSecurity ? currentSecurity.detected_risks : []
-      });
+        detected_risks: currentSecurity?.detected_risks || []
+      };
+
+      for (const field of ['mint_disabled', 'freeze_disabled', 'lp_burned_pct',
+                           'top10_holder_pct', 'holder_count', 'smart_money_wallets']) {
+        if (currentSecurity && currentSecurity[field] !== undefined) {
+          telemetry[field] = currentSecurity[field];
+        }
+      }
+
+      const telemetryPayload = JSON.stringify(telemetry);
 
       if (typeof window.ethereum !== 'undefined' && senderAddr) {
         setAuditStatusText(`🦊 Please confirm GenLayer Call transaction in your MetaMask popup (Fee: 1000 GEN)...`);
@@ -486,8 +517,8 @@ export default function App() {
         setAuditStatusText(`🤖 GenLayer LLM Consensus in progress... PROPOSING (Multi-validator voting on StudioNet)...`);
 
         // Poll GenLayer StudioNet RPC for true consensus finality status (FINALIZED / ACCEPTED)
-        const isFinalized = await waitForStudioNetReceipt(txHash, (statusMsg) => setAuditStatusText(statusMsg));
-        if (isFinalized) {
+        const receipt = await waitForStudioNetReceipt(txHash, (statusMsg) => setAuditStatusText(statusMsg));
+        if (receipt.ok) {
           setAuditStatusText('📥 Consensus FINALIZED! Reading fresh on-chain FINALIZED LLM verdict...');
           await new Promise(r => setTimeout(r, 1500));
           const loaded = await loadAuditFromChain(tokenAddress, uniqueRequestId);
@@ -496,6 +527,9 @@ export default function App() {
             loadOverviewFromChain();
             return;
           }
+        } else if (TERMINAL_FAILURE_STATUSES[receipt.status]) {
+          setAuditStatusText(`❌ No audit stored — ${TERMINAL_FAILURE_STATUSES[receipt.status]}`);
+          return;
         }
 
         // Additional polling fallback for state propagation
@@ -509,6 +543,14 @@ export default function App() {
             return;
           }
         }
+
+        // The audit fails closed: a reverted round stores nothing, so an empty
+        // read after finality is a rejected audit, not a propagation delay.
+        setAuditStatusText(
+          '❌ No audit was stored on-chain. The contract refuses to write a report when live ' +
+          'market or mint/freeze authority data is unavailable, or when the LLM consensus round ' +
+          'fails validation. Check the transaction on the explorer for the exact reason.'
+        );
       } else {
         setAuditStatusText('❌ Please connect your MetaMask wallet to send transactions.');
       }
@@ -1182,6 +1224,19 @@ export default function App() {
                   <p style={{ fontSize: '0.85rem', color: auditReport.safety_score >= 80 ? 'var(--neon-cyan)' : auditReport.safety_score >= 50 ? 'var(--neon-yellow)' : 'var(--neon-pink)', lineHeight: '1.5', fontFamily: 'var(--font-sans)' }}>
                     "{auditReport.ai_summary}"
                   </p>
+                  {auditReport.analysis_source && (
+                    <div style={{
+                      display: 'inline-flex', alignItems: 'center', gap: '0.4rem',
+                      marginTop: '0.5rem', padding: '0.3rem 0.65rem', borderRadius: '999px',
+                      fontSize: '0.72rem', fontWeight: '700', letterSpacing: '0.03em',
+                      background: 'rgba(0, 255, 179, 0.08)',
+                      border: '1px solid rgba(0, 255, 179, 0.35)',
+                      color: 'var(--neon-green)'
+                    }}>
+                      <Cpu size={12} />
+                      Verdict from GenLayer multi-validator LLM consensus
+                    </div>
+                  )}
                 </div>
               </div>
 
