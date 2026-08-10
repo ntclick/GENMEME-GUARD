@@ -70,6 +70,21 @@ SCORE_TOLERANCE = 10
 ALLOWED_VERDICTS = {"SAFE_TO_TRADE", "HIGH_VOLATILITY_WARN", "CRITICAL_RUG_RISK"}
 MIN_AUDIT_FEE = u256(1000)
 
+# Provenance markers so every stored report states whether the verdict came
+# from the on-chain LLM consensus round or from the deterministic fallback.
+SOURCE_LLM = "llm_consensus"
+SOURCE_FALLBACK = "deterministic_fallback"
+
+VERDICT_SEVERITY = {"SAFE_TO_TRADE": 0, "HIGH_VOLATILITY_WARN": 1, "CRITICAL_RUG_RISK": 2}
+
+SYMBOL_HINTS = [
+    ("EKpQGS", "WIF"),
+    ("5c4HyD", "SGL"),
+    ("DezXAZ", "BONK"),
+    ("7GCihg", "POPCAT"),
+    ("6p6xgH", "TRUMP"),
+]
+
 
 def _safe_float(val, default=0.0) -> float:
     if val is None:
@@ -92,6 +107,11 @@ def _safe_int(val, default=0) -> int:
 def _check_equivalence(res1: dict, res2: dict) -> bool:
     if not isinstance(res1, dict) or not isinstance(res2, dict):
         return False
+    # A node that reached its verdict through the LLM round and one that fell
+    # back to local arithmetic did not audit the same way, so they are not
+    # equivalent even when the numbers happen to line up.
+    if res1.get("analysis_source") != res2.get("analysis_source"):
+        return False
     score1 = _safe_int(res1.get("safety_score"))
     score2 = _safe_int(res2.get("safety_score"))
     if abs(score1 - score2) > SCORE_TOLERANCE:
@@ -103,6 +123,131 @@ def _check_equivalence(res1: dict, res2: dict) -> bool:
     if bool(res1.get("freeze_disabled")) != bool(res2.get("freeze_disabled")):
         return False
     return True
+
+
+def _resolve_symbol(token_address: str, raw_symbol) -> str:
+    sym = str(raw_symbol or "").strip()
+    if sym and sym != "UNKNOWN":
+        return sym
+    for prefix, known in SYMBOL_HINTS:
+        if prefix in token_address:
+            return known
+    return f"SOL-{token_address[:4]}"
+
+
+def _classify_llm_error(exc) -> str:
+    """Tag an LLM failure with a deterministic prefix so the stored report
+    says why the consensus round could not be used."""
+    msg = str(exc).strip() or exc.__class__.__name__
+    low = msg.lower()
+    if "timeout" in low or "timed out" in low or "unavailable" in low:
+        return f"TRANSIENT: {msg}"
+    if "connect" in low or "network" in low or "http" in low or "mock" in low:
+        return f"EXTERNAL: {msg}"
+    return f"LLM_ERROR: {msg}"
+
+
+def _band_verdict(score: int) -> str:
+    if score < 50:
+        return "CRITICAL_RUG_RISK"
+    if score < 80:
+        return "HIGH_VOLATILITY_WARN"
+    return "SAFE_TO_TRADE"
+
+
+def _normalize_llm_report(raw, token_address: str) -> dict:
+    """Strictly validate an LLM audit response.
+
+    Returns {} when the response cannot be trusted, so the caller records an
+    explicit failure instead of silently substituting a locally computed
+    result that looks like it came from the model.
+    """
+    parsed = raw
+    if isinstance(raw, str):
+        clean = raw.strip()
+        if clean.startswith("```json"):
+            clean = clean[7:]
+        if clean.startswith("```"):
+            clean = clean[3:]
+        if clean.endswith("```"):
+            clean = clean[:-3]
+        try:
+            parsed = json.loads(clean.strip())
+        except Exception:
+            return {}
+
+    if not isinstance(parsed, dict):
+        return {}
+    if "safety_score" not in parsed or "verdict" not in parsed:
+        return {}
+
+    verdict = str(parsed.get("verdict") or "").strip().upper()
+    if verdict not in ALLOWED_VERDICTS:
+        return {}
+
+    score = _safe_int(parsed.get("safety_score"), -1)
+    if score < 0 or score > 100:
+        return {}
+
+    summary = str(parsed.get("ai_summary") or "").strip()
+    if not summary:
+        return {}
+
+    raw_risks = parsed.get("risk_factors")
+    risks = [str(r) for r in raw_risks if r is not None] if isinstance(raw_risks, list) else []
+
+    return {
+        "token_address": token_address,
+        "token_symbol": _resolve_symbol(token_address, parsed.get("token_symbol")),
+        "safety_score": score,
+        "verdict": verdict,
+        "mint_disabled": bool(parsed.get("mint_disabled", True)),
+        "freeze_disabled": bool(parsed.get("freeze_disabled", True)),
+        "lp_burned_pct": _safe_int(parsed.get("lp_burned_pct"), 0),
+        "top10_holder_pct": _safe_int(parsed.get("top10_holder_pct"), 0),
+        "holder_count": _safe_int(parsed.get("holder_count"), 0),
+        "smart_money_wallets": _safe_int(parsed.get("smart_money_wallets"), 0),
+        "risk_factors": risks,
+        "ai_summary": summary,
+    }
+
+
+def _validate_findings(report: dict, ground_truth: dict) -> dict:
+    """Cross-check a model verdict against hard evidence before it is stored.
+
+    Mint/freeze authority is an on-chain fact read from RugCheck or the
+    caller's telemetry payload, not a matter of model opinion, so the fetched
+    value always wins and an active authority forces CRITICAL_RUG_RISK. The
+    verdict is then reconciled with its own score band, keeping whichever of
+    the two readings is more severe so the model cannot label a failing score
+    as safe.
+    """
+    if "mint_authority_disabled" in ground_truth:
+        report["mint_disabled"] = bool(ground_truth["mint_authority_disabled"])
+    if "freeze_authority_disabled" in ground_truth:
+        report["freeze_disabled"] = bool(ground_truth["freeze_authority_disabled"])
+
+    if not report["mint_disabled"]:
+        label = "Mint Authority Active — Inflation Danger"
+        if label not in report["risk_factors"]:
+            report["risk_factors"].append(label)
+    if not report["freeze_disabled"]:
+        label = "Freeze Authority Active — Honeypot Lock Danger"
+        if label not in report["risk_factors"]:
+            report["risk_factors"].append(label)
+
+    if not report["mint_disabled"] or not report["freeze_disabled"]:
+        report["verdict"] = "CRITICAL_RUG_RISK"
+        if report["safety_score"] > 49:
+            report["safety_score"] = 49
+
+    banded = _band_verdict(report["safety_score"])
+    if VERDICT_SEVERITY[banded] > VERDICT_SEVERITY[report["verdict"]]:
+        report["verdict"] = banded
+
+    if not report["risk_factors"]:
+        report["risk_factors"] = ["Volatile Meme Market Dynamics"]
+    return report
 
 
 @allow_storage
@@ -122,6 +267,8 @@ class AuditRecord:
     ai_summary: str
     audited_at_block: u64
     paid_amount: u256
+    analysis_source: str
+    llm_error: str
 
 
 class MemeRugAuditor(gl.Contract):
@@ -298,67 +445,38 @@ class MemeRugAuditor(gl.Contract):
                 .replace("{tech_data}", tech_summary_json)
             )
 
+            # Authority status is hard evidence, not model opinion: prefer the
+            # caller's signed telemetry, else the RugCheck fetch.
+            ground_truth = {}
+            for src in (security_metrics, tele_security):
+                if isinstance(src, dict):
+                    if "mint_authority_disabled" in src:
+                        ground_truth["mint_authority_disabled"] = src["mint_authority_disabled"]
+                    if "freeze_authority_disabled" in src:
+                        ground_truth["freeze_authority_disabled"] = src["freeze_authority_disabled"]
+
+            # Non-deterministic LLM round. Failures are recorded, never swallowed:
+            # a silently substituted local result would be indistinguishable from
+            # a real consensus verdict.
+            llm_error = ""
             try:
                 response = gl.nondet.exec_prompt(prompt, response_format="json")
-                if isinstance(response, str):
-                    clean_res = response.strip()
-                    if clean_res.startswith("```json"):
-                        clean_res = clean_res[7:]
-                    if clean_res.startswith("```"):
-                        clean_res = clean_res[3:]
-                    if clean_res.endswith("```"):
-                        clean_res = clean_res[:-3]
-                    parsed = json.loads(clean_res.strip())
-                    if isinstance(parsed, dict) and "safety_score" in parsed:
-                        if parsed.get("token_symbol") == "UNKNOWN" or not parsed.get("token_symbol"):
-                            if "EKpQGS" in token_address:
-                                parsed["token_symbol"] = "WIF"
-                            elif "5c4HyD" in token_address:
-                                parsed["token_symbol"] = "SGL"
-                            elif "DezXAZ" in token_address:
-                                parsed["token_symbol"] = "BONK"
-                            elif "7GCihg" in token_address:
-                                parsed["token_symbol"] = "POPCAT"
-                            elif "6p6xgH" in token_address:
-                                parsed["token_symbol"] = "TRUMP"
-                            else:
-                                parsed["token_symbol"] = f"SOL-{token_address[:4]}"
-                        return parsed
-                elif isinstance(response, dict) and "safety_score" in response:
-                    if response.get("token_symbol") == "UNKNOWN" or not response.get("token_symbol"):
-                        if "EKpQGS" in token_address:
-                            response["token_symbol"] = "WIF"
-                        elif "5c4HyD" in token_address:
-                            response["token_symbol"] = "SGL"
-                        elif "DezXAZ" in token_address:
-                            response["token_symbol"] = "BONK"
-                        elif "7GCihg" in token_address:
-                            response["token_symbol"] = "POPCAT"
-                        elif "6p6xgH" in token_address:
-                            response["token_symbol"] = "TRUMP"
-                        else:
-                            response["token_symbol"] = f"SOL-{token_address[:4]}"
-                    return response
-            except Exception:
-                pass
+                llm_report = _normalize_llm_report(response, token_address)
+                if not llm_report:
+                    llm_error = "LLM_ERROR: response failed schema or range validation"
+            except Exception as e:
+                llm_report = {}
+                llm_error = _classify_llm_error(e)
 
-            # Safe fallback dict using extracted technical indicators if LLM formatting fails
-            raw_sym = dex_metrics.get("token_symbol")
-            if not raw_sym or raw_sym == "UNKNOWN":
-                if "EKpQGS" in token_address:
-                    symbol = "WIF"
-                elif "5c4HyD" in token_address:
-                    symbol = "SGL"
-                elif "DezXAZ" in token_address:
-                    symbol = "BONK"
-                elif "7GCihg" in token_address:
-                    symbol = "POPCAT"
-                elif "6p6xgH" in token_address:
-                    symbol = "TRUMP"
-                else:
-                    symbol = f"SOL-{token_address[:4]}"
-            else:
-                symbol = str(raw_sym)
+            if llm_report:
+                llm_report = _validate_findings(llm_report, ground_truth)
+                llm_report["analysis_source"] = SOURCE_LLM
+                llm_report["llm_error"] = ""
+                return llm_report
+
+            # Deterministic fallback over the fetched telemetry, tagged so the
+            # stored report never passes itself off as an LLM verdict.
+            symbol = _resolve_symbol(token_address, dex_metrics.get("token_symbol"))
 
             # Check explicit authority status if API / telemetry returned valid status
             mint_dis = tele_security.get("mint_authority_disabled") if "mint_authority_disabled" in tele_security else security_metrics.get("mint_authority_disabled", True)
@@ -505,7 +623,9 @@ class MemeRugAuditor(gl.Contract):
                 "holder_count": holder_cnt,
                 "smart_money_wallets": smart_wallets,
                 "risk_factors": risks if risks else ["Volatile Meme Market Dynamics"],
-                "ai_summary": rich_ai_summary
+                "ai_summary": rich_ai_summary,
+                "analysis_source": SOURCE_FALLBACK,
+                "llm_error": llm_error
             }
 
         def validator_fn(leaders_res) -> bool:
@@ -546,6 +666,8 @@ class MemeRugAuditor(gl.Contract):
         if not isinstance(risk_list, list):
             risk_list = ["Unspecified risk signal"]
         ai_sum = str(consensus_output.get("ai_summary", "Audit completed."))
+        analysis_source = str(consensus_output.get("analysis_source", SOURCE_FALLBACK))
+        llm_error = str(consensus_output.get("llm_error", ""))
 
         rec = AuditRecord(
             request_id=request_id,
@@ -561,7 +683,9 @@ class MemeRugAuditor(gl.Contract):
             risk_factors_json=json.dumps(risk_list),
             ai_summary=ai_sum,
             audited_at_block=0,
-            paid_amount=payment_amount
+            paid_amount=payment_amount,
+            analysis_source=analysis_source,
+            llm_error=llm_error
         )
 
         self.audited_records[token_address] = rec
@@ -590,6 +714,8 @@ class MemeRugAuditor(gl.Contract):
             "top10_holder_pct": top10,
             "risk_factors": risk_list,
             "ai_summary": ai_sum,
+            "analysis_source": analysis_source,
+            "llm_error": llm_error,
             "paid_amount": str(payment_amount)
         })
 
@@ -617,6 +743,8 @@ class MemeRugAuditor(gl.Contract):
                 "top10_holder_pct": rec.top10_holder_pct,
                 "risk_factors": risks,
                 "ai_summary": rec.ai_summary,
+                "analysis_source": rec.analysis_source,
+                "llm_error": rec.llm_error,
                 "audited_at_block": rec.audited_at_block,
                 "paid_amount": str(rec.paid_amount)
             }
@@ -658,6 +786,8 @@ class MemeRugAuditor(gl.Contract):
                 "top10_holder_pct": rec.top10_holder_pct,
                 "risk_factors": risks,
                 "ai_summary": rec.ai_summary,
+                "analysis_source": rec.analysis_source,
+                "llm_error": rec.llm_error,
                 "paid_amount": str(rec.paid_amount)
             }
 

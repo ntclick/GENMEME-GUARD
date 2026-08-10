@@ -403,3 +403,256 @@ def test_run_small_cap_speculative_audit(direct_deploy):
     assert report["has_audit"] is True
     assert report["safety_score"] == 30  # DYNAMICALLY SCORED AT 30/100 (CAPPED AT TIER 2 & PENALIZED FOR DUMP PRESSURE)!
     assert report["verdict"] == "CRITICAL_RUG_RISK"
+
+
+WIF_CA = "EKpQGSJtjMFqKZ9KQanSqYXRcF8fBopzLHYxdM65zcjm"
+
+BLUECHIP_TELEMETRY = json.dumps({
+    "token_symbol": "WIF",
+    "token_name": "dogwifhat",
+    "price_usd": "2.45",
+    "market_cap_usd": 2450000000.0,
+    "fdv_usd": 2450000000.0,
+    "liquidity_usd": 15420000.0,
+    "volume_24h_usd": 185000000.0,
+    "price_change_24h_pct": 5.2,
+    "txns_24h_buys": 14200,
+    "txns_24h_sells": 11800,
+    "holder_count": 185400,
+    "smart_money_wallets": 42,
+    "top10_holder_pct": 18,
+    "mint_disabled": True,
+    "freeze_disabled": True,
+    "lp_burned_pct": 100,
+    "detected_risks": []
+})
+
+
+def test_llm_verdict_drives_stored_report(direct_vm, direct_deploy, direct_alice):
+    """The on-chain LLM round, not local arithmetic, decides the stored report.
+
+    The same bluechip telemetry scores 100/SAFE_TO_TRADE through the
+    deterministic engine (see test_run_live_demo_audit). Here the model
+    returns 63/HIGH_VOLATILITY_WARN instead, so if the stored report reads 63
+    the verdict provably came from the LLM and not from local scoring.
+    """
+    direct_vm.sender = direct_alice
+    direct_vm.mock_llm(r".*", json.dumps({
+        "token_address": WIF_CA,
+        "token_symbol": "WIF",
+        "safety_score": 63,
+        "verdict": "HIGH_VOLATILITY_WARN",
+        "mint_disabled": True,
+        "freeze_disabled": True,
+        "lp_burned_pct": 100,
+        "top10_holder_pct": 18,
+        "holder_count": 185400,
+        "smart_money_wallets": 42,
+        "risk_factors": ["Model-flagged momentum exhaustion after parabolic run"],
+        "ai_summary": "Model brief: elevated volatility despite deep liquidity.",
+    }))
+
+    contract = direct_deploy("contracts/meme_rug_auditor.py")
+    contract.audit_token(WIF_CA, request_id="req_llm_drives_1", payment_amount=1000,
+                         telemetry_json=BLUECHIP_TELEMETRY)
+
+    report = contract.get_audit(WIF_CA)
+    assert report["analysis_source"] == "llm_consensus"
+    assert report["llm_error"] == ""
+    assert report["safety_score"] == 63
+    assert report["safety_score"] != 100  # 100 is what local scoring would have produced
+    assert report["verdict"] == "HIGH_VOLATILITY_WARN"
+    assert "momentum exhaustion" in report["risk_factors"][0]
+
+
+def test_llm_failure_is_recorded_not_masked(direct_vm, direct_deploy, direct_alice):
+    """When the LLM round is unavailable the report says so instead of passing
+    a locally computed score off as a consensus verdict."""
+    direct_vm.sender = direct_alice
+    contract = direct_deploy("contracts/meme_rug_auditor.py")
+    contract.audit_token(WIF_CA, request_id="req_llm_missing_1", payment_amount=1000,
+                         telemetry_json=BLUECHIP_TELEMETRY)
+
+    report = contract.get_audit(WIF_CA)
+    assert report["analysis_source"] == "deterministic_fallback"
+    assert report["llm_error"] != ""
+    assert report["llm_error"].split(":")[0] in {"TRANSIENT", "EXTERNAL", "LLM_ERROR"}
+
+
+def test_malformed_llm_response_is_rejected(direct_vm, direct_deploy, direct_alice):
+    """A model reply that misses the schema or leaves the valid range is not
+    trusted — it is rejected and recorded, never stored as a verdict."""
+    direct_vm.sender = direct_alice
+    direct_vm.mock_llm(r".*", json.dumps({
+        "token_symbol": "WIF",
+        "safety_score": 420,               # out of the 0-100 range
+        "verdict": "DEFINITELY_FINE",      # not an allowed verdict
+        "ai_summary": "",
+    }))
+
+    contract = direct_deploy("contracts/meme_rug_auditor.py")
+    contract.audit_token(WIF_CA, request_id="req_llm_malformed_1", payment_amount=1000,
+                         telemetry_json=BLUECHIP_TELEMETRY)
+
+    report = contract.get_audit(WIF_CA)
+    assert report["analysis_source"] == "deterministic_fallback"
+    assert report["llm_error"].startswith("LLM_ERROR")
+    assert report["safety_score"] <= 100
+    assert report["verdict"] in {"SAFE_TO_TRADE", "HIGH_VOLATILITY_WARN", "CRITICAL_RUG_RISK"}
+
+
+def test_llm_cannot_override_authority_findings(direct_vm, direct_deploy, direct_alice):
+    """Authority status is on-chain evidence, so a model claiming a token with
+    a live mint authority is safe gets corrected before the report is stored."""
+    direct_vm.sender = direct_alice
+    direct_vm.mock_llm(r".*", json.dumps({
+        "token_address": WIF_CA,
+        "token_symbol": "WIF",
+        "safety_score": 95,
+        "verdict": "SAFE_TO_TRADE",
+        "mint_disabled": True,      # model contradicts the telemetry below
+        "freeze_disabled": True,
+        "lp_burned_pct": 100,
+        "top10_holder_pct": 18,
+        "risk_factors": [],
+        "ai_summary": "Model brief claiming a clean bill of health.",
+    }))
+
+    hostile_telemetry = json.dumps({
+        "token_symbol": "WIF",
+        "fdv_usd": 2450000000.0,
+        "liquidity_usd": 15420000.0,
+        "volume_24h_usd": 185000000.0,
+        "txns_24h_buys": 14200,
+        "txns_24h_sells": 11800,
+        "holder_count": 185400,
+        "smart_money_wallets": 42,
+        "top10_holder_pct": 18,
+        "mint_disabled": False,     # live mint authority — hard on-chain fact
+        "freeze_disabled": True,
+        "lp_burned_pct": 100,
+        "detected_risks": []
+    })
+
+    contract = direct_deploy("contracts/meme_rug_auditor.py")
+    contract.audit_token(WIF_CA, request_id="req_authority_override_1", payment_amount=1000,
+                         telemetry_json=hostile_telemetry)
+
+    report = contract.get_audit(WIF_CA)
+    assert report["analysis_source"] == "llm_consensus"
+    assert report["mint_disabled"] is False          # evidence overrode the model
+    assert report["verdict"] == "CRITICAL_RUG_RISK"  # forced, despite the model's SAFE
+    assert report["safety_score"] <= 49
+    assert any("Mint Authority Active" in r for r in report["risk_factors"])
+
+
+def test_validator_consensus_agrees_on_reexecution(direct_vm, direct_deploy, direct_alice):
+    """Proves real validator consensus: a validator independently re-runs the
+    web+LLM audit via validator_fn and reaches equivalence with the leader
+    when it observes the same external data (gl.vm.run_nondet_unsafe path)."""
+    direct_vm.sender = direct_alice
+
+    mock_llm_result = {
+        "token_address": "EKpQGSJtjMFqKZ9KQanSqYXRcF8fBopzLHYxdM65zcjm",
+        "token_symbol": "WIF",
+        "safety_score": 92,
+        "verdict": "SAFE_TO_TRADE",
+        "mint_disabled": True,
+        "freeze_disabled": True,
+        "lp_burned_pct": 100,
+        "top10_holder_pct": 18,
+        "risk_factors": ["High volume volatility"],
+        "ai_summary": "Dogwifhat token exhibits 100% burned liquidity and mint/freeze authority disabled.",
+    }
+    dex_response = {
+        "pairs": [{
+            "baseToken": {"symbol": "WIF", "name": "Dogwifhat"},
+            "dexId": "raydium",
+            "priceUsd": "2.45",
+            "liquidity": {"usd": 1500000.0},
+            "volume": {"h24": 5000000.0},
+            "priceChange": {"h24": 12.5},
+            "txns": {"h24": {"buys": 1200, "sells": 800}},
+        }]
+    }
+    rugcheck_response = {
+        "token": {"mintAuthority": None, "freezeAuthority": None},
+        "risks": [{"name": "High volume volatility"}],
+        "score": 92,
+    }
+
+    direct_vm.mock_web(r".*dexscreener\.com.*", {"status": 200, "body": json.dumps(dex_response)})
+    direct_vm.mock_web(r".*rugcheck\.xyz.*", {"status": 200, "body": json.dumps(rugcheck_response)})
+    direct_vm.mock_llm(r".*", json.dumps(mock_llm_result))
+
+    contract = direct_deploy("contracts/meme_rug_auditor.py")
+    token_ca = "EKpQGSJtjMFqKZ9KQanSqYXRcF8fBopzLHYxdM65zcjm"
+    contract.audit_token(token_ca, request_id="req_consensus_agree_1", payment_amount=1000)
+
+    # Same mocks are still active, so the validator's independent re-run of
+    # leader_fn() inside validator_fn observes the same web+LLM data and
+    # must reach equivalence with the stored leader result.
+    agreed = direct_vm.run_validator()
+    assert agreed is True
+
+
+def test_validator_consensus_rejects_divergent_reexecution(direct_vm, direct_deploy, direct_alice):
+    """Proves the equivalence check actually rejects disagreement: when the
+    validator's independent re-run observes materially different LLM output
+    (e.g. a manipulated/hallucinating node), validator_fn must return False
+    instead of blindly trusting the leader's local shape."""
+    direct_vm.sender = direct_alice
+
+    leader_llm_result = {
+        "token_address": "EKpQGSJtjMFqKZ9KQanSqYXRcF8fBopzLHYxdM65zcjm",
+        "token_symbol": "WIF",
+        "safety_score": 92,
+        "verdict": "SAFE_TO_TRADE",
+        "mint_disabled": True,
+        "freeze_disabled": True,
+        "lp_burned_pct": 100,
+        "top10_holder_pct": 18,
+        "risk_factors": [],
+        "ai_summary": "Clean audit.",
+    }
+    dex_response = {
+        "pairs": [{
+            "baseToken": {"symbol": "WIF", "name": "Dogwifhat"},
+            "dexId": "raydium",
+            "priceUsd": "2.45",
+            "liquidity": {"usd": 1500000.0},
+            "volume": {"h24": 5000000.0},
+            "priceChange": {"h24": 12.5},
+            "txns": {"h24": {"buys": 1200, "sells": 800}},
+        }]
+    }
+    rugcheck_response = {
+        "token": {"mintAuthority": None, "freezeAuthority": None},
+        "risks": [],
+        "score": 92,
+    }
+
+    direct_vm.mock_web(r".*dexscreener\.com.*", {"status": 200, "body": json.dumps(dex_response)})
+    direct_vm.mock_web(r".*rugcheck\.xyz.*", {"status": 200, "body": json.dumps(rugcheck_response)})
+    direct_vm.mock_llm(r".*", json.dumps(leader_llm_result))
+
+    contract = direct_deploy("contracts/meme_rug_auditor.py")
+    token_ca = "EKpQGSJtjMFqKZ9KQanSqYXRcF8fBopzLHYxdM65zcjm"
+    contract.audit_token(token_ca, request_id="req_consensus_reject_1", payment_amount=1000)
+
+    # Swap the LLM mock to simulate a validator node whose independent
+    # re-run diverges sharply on score, verdict AND authority findings.
+    divergent_llm_result = dict(leader_llm_result)
+    divergent_llm_result.update({
+        "safety_score": 15,
+        "verdict": "CRITICAL_RUG_RISK",
+        "mint_disabled": False,
+        "freeze_disabled": False,
+    })
+    direct_vm.clear_mocks()
+    direct_vm.mock_web(r".*dexscreener\.com.*", {"status": 200, "body": json.dumps(dex_response)})
+    direct_vm.mock_web(r".*rugcheck\.xyz.*", {"status": 200, "body": json.dumps(rugcheck_response)})
+    direct_vm.mock_llm(r".*", json.dumps(divergent_llm_result))
+
+    disagreed = direct_vm.run_validator()
+    assert disagreed is False
