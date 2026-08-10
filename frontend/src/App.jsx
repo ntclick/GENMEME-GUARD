@@ -454,7 +454,7 @@ export default function App() {
       const telemetryPayload = JSON.stringify(telemetry);
 
       if (typeof window.ethereum !== 'undefined' && senderAddr) {
-        setAuditStatusText(`Confirm the GenLayer call in your MetaMask popup (fee: 1000 GEN)...`);
+        setAuditStatusText(`Confirm the GenLayer call in your MetaMask popup (StudioNet is gasless)...`);
 
         try {
           // Attempt 1: Standard genClient.writeContract
