@@ -508,19 +508,32 @@ class MemeRugAuditor(gl.Contract):
                 "ai_summary": rich_ai_summary
             }
 
-        def validator_fn(leader_result: dict) -> bool:
+        def validator_fn(leaders_res) -> bool:
+            # Real validator consensus: each validator INDEPENDENTLY re-runs the
+            # non-deterministic web fetch + LLM audit and compares the substantive
+            # findings (score within tolerance, verdict, mint/freeze authority)
+            # against the leader's result — NOT a local shape check.
+            if not isinstance(leaders_res, gl.vm.Return):
+                return False
+            leader_result = leaders_res.calldata
             if not isinstance(leader_result, dict):
                 return False
-            score = leader_result.get("safety_score")
-            verdict = leader_result.get("verdict")
-            if not isinstance(score, (int, float)) or verdict not in ALLOWED_VERDICTS:
+            if "safety_score" not in leader_result:
                 return False
-            return True
+            if leader_result.get("verdict") not in ALLOWED_VERDICTS:
+                return False
+            # Independently reproduce the leader's work on this validator node.
+            my_result = leader_fn()
+            # Equivalence check over the substantive audit findings.
+            return _check_equivalence(leader_result, my_result)
 
-        leader_result = leader_fn()
-        if not validator_fn(leader_result):
+        # Route the web + LLM work through GenVM's non-deterministic consensus
+        # runner: the leader executes leader_fn, and every validator re-executes
+        # it via validator_fn and must reach equivalence before the result is
+        # accepted and stored on-chain.
+        consensus_output = gl.vm.run_nondet_unsafe(leader_fn, validator_fn)
+        if not isinstance(consensus_output, dict):
             raise gl.vm.UserError("Validator consensus mismatch.")
-        consensus_output = leader_result
 
         symbol = str(consensus_output.get("token_symbol", "UNKNOWN"))
         score = _safe_int(consensus_output.get("safety_score", 75))
