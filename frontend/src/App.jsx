@@ -37,7 +37,7 @@ import {
   Award
 } from 'lucide-react';
 
-const DEFAULT_CONTRACT = '0x95BF2eFBcadf2Ea351edd04dA406855a5aB78BcB';
+const DEFAULT_CONTRACT = '0x2e06779f31E6E29041e9E2402472427a6e1882Fc';
 const STUDIONET_RPC_URL = 'https://studio.genlayer.com/api';
 const EXPLORER_BASE_URL = 'https://explorer-studio.genlayer.com';
 
