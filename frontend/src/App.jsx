@@ -26,7 +26,7 @@ import {
   Award
 } from 'lucide-react';
 
-const DEFAULT_CONTRACT = '0x2e06779f31E6E29041e9E2402472427a6e1882Fc';
+const DEFAULT_CONTRACT = '0x6053bcbD36B2eEfC934152C75C7a78CE3D431C0B';
 const STUDIONET_RPC_URL = 'https://studio.genlayer.com/api';
 const EXPLORER_BASE_URL = 'https://explorer-studio.genlayer.com';
 
@@ -133,6 +133,16 @@ async function fetchStudioNetOverview(contractAddr) {
   }
   return null;
 }
+
+// Metrics the audit stores alongside the verdict. Each can legitimately be 0,
+// so they are rendered against the report's unverified_fields list rather than
+// letting a placeholder zero pass for a measurement.
+const DISTRIBUTION_METRICS = [
+  { key: 'lp_burned_pct', label: 'LP burned', format: (v) => `${v ?? 0}%` },
+  { key: 'top10_holder_pct', label: 'Top 10 holders', format: (v) => `${v ?? 0}%` },
+  { key: 'holder_count', label: 'Holders', format: (v) => (v ?? 0).toLocaleString() },
+  { key: 'smart_money_wallets', label: 'Smart money', format: (v) => (v ?? 0).toLocaleString() },
+];
 
 // Consensus rounds that ended without a stored verdict. The audit fails closed,
 // so these are real outcomes the user has to see, not states worth polling on.
@@ -1014,6 +1024,27 @@ export default function App() {
                       {auditReport.freeze_disabled ? 'Disabled (safe)' : 'Enabled (risk)'}
                     </div>
                   </div>
+                </div>
+              </div>
+
+              <div style={{ marginBottom: '1rem' }}>
+                <div className="metric-label" style={{ marginBottom: '0.55rem' }}>Distribution metrics</div>
+                <div className="grid-4" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))' }}>
+                  {DISTRIBUTION_METRICS.map(({ key, label, format }) => {
+                    // A zero here is only meaningful when something actually
+                    // measured it. The contract lists the fields no source could
+                    // back, and those read "Unknown" rather than a number that
+                    // would look like a finding.
+                    const unknown = (auditReport.unverified_fields || []).includes(key);
+                    return (
+                      <div className="metric-tile" key={key}>
+                        <div className="metric-label">{label}</div>
+                        <div className="metric-value" style={unknown ? { color: 'var(--text-tertiary)' } : undefined}>
+                          {unknown ? 'Unknown' : format(auditReport[key])}
+                        </div>
+                      </div>
+                    );
+                  })}
                 </div>
               </div>
 

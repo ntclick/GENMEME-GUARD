@@ -28,6 +28,16 @@ INSTITUTIONAL SCALE-TIER SCORING MATRIX:
    - Mint Authority Active: Immediate -50 pts -> Verdict MUST be CRITICAL_RUG_RISK!
    - Freeze Authority Active: Immediate -50 pts -> Verdict MUST be CRITICAL_RUG_RISK!
    - LP Burned %: < 50% = -40 pts; 50-80% = -20 pts; >= 95% = +5 pts.
+     If the payload above does not contain an LP burn percentage, you MUST report
+     lp_burned_pct as 0 and MUST NOT award the >= 95% bonus. Do not substitute a
+     reassuring value for a figure the evidence never supplied.
+
+EVIDENCE DISCIPLINE (applies to every numeric field):
+Report 0 for lp_burned_pct, top10_holder_pct, holder_count or smart_money_wallets
+whenever the payload does not contain that measurement, and say plainly in
+ai_summary which metrics were unavailable. Never infer, estimate or default these
+numbers — an unverified figure is treated as absent and the contract will
+overwrite anything you invent here.
 
 3. HOLDER DISTRIBUTION & SMART MONEY NETWORK:
    - Holder Count > 10,000: +15 pts; < 200: -25 pts (Insider Sybil risk).
@@ -76,6 +86,10 @@ MIN_AUDIT_FEE = u256(1000)
 SOURCE_LLM = "llm_consensus"
 
 VERDICT_SEVERITY = {"SAFE_TO_TRADE": 0, "HIGH_VOLATILITY_WARN": 1, "CRITICAL_RUG_RISK": 2}
+
+# The rubric grants this for LP burned >= 95%. Reclaimed when that percentage
+# turns out to be the model's own invention rather than fetched evidence.
+LP_BURN_BONUS = 5
 
 SYMBOL_HINTS = [
     ("EKpQGS", "WIF"),
@@ -239,6 +253,35 @@ def _validate_findings(report: dict, ground_truth: dict) -> dict:
         if report["safety_score"] > 49:
             report["safety_score"] = 49
 
+    # The distribution metrics get the same treatment as authority: a fetched
+    # value always wins, and one the evidence never supplied is not the model's
+    # to invent. A model that admits in prose that it cannot verify LP burn has
+    # still been observed reporting lp_burned_pct 100 — the most reassuring
+    # value available — in the same response, so an unbacked number is zeroed
+    # and named rather than stored as if it were measured. Zero is ambiguous on
+    # its own (0% LP burned is a real and serious finding), which is why the
+    # unverified list travels with the report instead of leaving the reader to
+    # guess which zeros mean "measured" and which mean "unknown".
+    unverified = []
+    for evidence_key in ("lp_burned_pct", "top10_holder_pct", "holder_count", "smart_money_wallets"):
+        if evidence_key in ground_truth:
+            report[evidence_key] = _safe_int(ground_truth[evidence_key])
+        else:
+            claimed = _safe_int(report.get(evidence_key))
+            report[evidence_key] = 0
+            unverified.append(evidence_key)
+            # Undo the rubric's own ">= 95% LP burned" bonus if the model
+            # awarded it off a number nothing backed.
+            if evidence_key == "lp_burned_pct" and claimed >= 95:
+                report["safety_score"] = max(0, report["safety_score"] - LP_BURN_BONUS)
+
+    if "lp_burned_pct" in unverified:
+        label = "LP Burn Unverified — no burn evidence from RugCheck or caller telemetry"
+        if label not in report["risk_factors"]:
+            report["risk_factors"].append(label)
+
+    report["unverified_fields"] = unverified
+
     banded = _band_verdict(report["safety_score"])
     if VERDICT_SEVERITY[banded] > VERDICT_SEVERITY[report["verdict"]]:
         report["verdict"] = banded
@@ -261,11 +304,16 @@ class AuditRecord:
     freeze_disabled: bool
     lp_burned_pct: u32
     top10_holder_pct: u32
+    holder_count: u32
+    smart_money_wallets: u32
     risk_factors_json: str
     ai_summary: str
     audited_at_block: u64
     paid_amount: u256
     analysis_source: str
+    # JSON list naming the metrics above that no source could back, so a reader
+    # can tell a measured zero from an unknown one.
+    unverified_fields_json: str
 
 
 class MemeRugAuditor(gl.Contract):
@@ -445,6 +493,35 @@ class MemeRugAuditor(gl.Contract):
                     security_metrics["mint_authority_disabled"] = not bool(tok_info.get("mintAuthority"))
                 if "freezeAuthority" in tok_info:
                     security_metrics["freeze_authority_disabled"] = not bool(tok_info.get("freezeAuthority"))
+
+                # Distribution metrics, again only when RugCheck really returned
+                # them. These used to be read on the client alone, which left the
+                # contract with no evidence of its own to check the model against.
+                markets = raw_sec.get("markets") if isinstance(raw_sec.get("markets"), list) else []
+                if markets and isinstance(markets[0], dict):
+                    lp_info = markets[0].get("lp") if isinstance(markets[0].get("lp"), dict) else {}
+                    if isinstance(lp_info.get("lpBurnedPct"), (int, float)):
+                        security_metrics["lp_burned_pct"] = _safe_int(lp_info.get("lpBurnedPct"))
+
+                top_holders = raw_sec.get("topHolders") if isinstance(raw_sec.get("topHolders"), list) else []
+                if isinstance(raw_sec.get("topHoldersPct"), (int, float)):
+                    security_metrics["top10_holder_pct"] = _safe_int(raw_sec.get("topHoldersPct"))
+                elif top_holders:
+                    security_metrics["top10_holder_pct"] = _safe_int(
+                        sum(_safe_float(h.get("pct")) for h in top_holders[:10] if isinstance(h, dict))
+                    )
+
+                for holders_key in ("totalHolders", "holderCount"):
+                    if isinstance(raw_sec.get(holders_key), (int, float)):
+                        security_metrics["holder_count"] = _safe_int(raw_sec.get(holders_key))
+                        break
+
+                if top_holders:
+                    security_metrics["smart_money_wallets"] = len([
+                        h for h in top_holders
+                        if isinstance(h, dict) and not h.get("insider")
+                        and 0.2 < _safe_float(h.get("pct")) < 5.0
+                    ])
             except Exception as e:
                 security_metrics = {"status": "security_unavailable", "error": str(e)}
 
@@ -462,13 +539,19 @@ class MemeRugAuditor(gl.Contract):
 
             # Authority status is hard evidence, not model opinion: prefer the
             # caller's signed telemetry, else the RugCheck fetch.
+            # Order matters: the caller's telemetry is applied first so that
+            # anything this contract fetched for itself overwrites it. The
+            # payload arrives from an untrusted caller who could assert a fully
+            # burned LP and revoked authorities for a token that has neither, so
+            # it only stands where RugCheck gave us nothing to check it against.
             ground_truth = {}
-            for src in (security_metrics, tele_security):
+            for src in (tele_security, security_metrics):
                 if isinstance(src, dict):
-                    if "mint_authority_disabled" in src:
-                        ground_truth["mint_authority_disabled"] = src["mint_authority_disabled"]
-                    if "freeze_authority_disabled" in src:
-                        ground_truth["freeze_authority_disabled"] = src["freeze_authority_disabled"]
+                    for evidence_key in ("mint_authority_disabled", "freeze_authority_disabled",
+                                         "lp_burned_pct", "top10_holder_pct",
+                                         "holder_count", "smart_money_wallets"):
+                        if evidence_key in src and src[evidence_key] is not None:
+                            ground_truth[evidence_key] = src[evidence_key]
 
             # An auditor that cannot see the token's authority status cannot
             # certify anything about it. Rather than assume a clean default,
@@ -541,11 +624,16 @@ class MemeRugAuditor(gl.Contract):
         freeze_dis = bool(consensus_output.get("freeze_disabled", False))
         lp_burned = _safe_int(consensus_output.get("lp_burned_pct", 0))
         top10 = _safe_int(consensus_output.get("top10_holder_pct", 0))
+        holder_cnt = _safe_int(consensus_output.get("holder_count", 0))
+        smart_wallets = _safe_int(consensus_output.get("smart_money_wallets", 0))
         risk_list = consensus_output.get("risk_factors", [])
         if not isinstance(risk_list, list):
             risk_list = ["Unspecified risk signal"]
         ai_sum = str(consensus_output.get("ai_summary", "Audit completed."))
         analysis_source = str(consensus_output.get("analysis_source", SOURCE_LLM))
+        unverified = consensus_output.get("unverified_fields", [])
+        if not isinstance(unverified, list):
+            unverified = []
 
         rec = AuditRecord(
             request_id=request_id,
@@ -558,7 +646,10 @@ class MemeRugAuditor(gl.Contract):
             freeze_disabled=freeze_dis,
             lp_burned_pct=lp_burned,
             top10_holder_pct=top10,
+            holder_count=holder_cnt,
+            smart_money_wallets=smart_wallets,
             risk_factors_json=json.dumps(risk_list),
+            unverified_fields_json=json.dumps(unverified),
             ai_summary=ai_sum,
             audited_at_block=0,
             paid_amount=payment_amount,
@@ -589,7 +680,10 @@ class MemeRugAuditor(gl.Contract):
             "freeze_disabled": freeze_dis,
             "lp_burned_pct": lp_burned,
             "top10_holder_pct": top10,
+            "holder_count": holder_cnt,
+            "smart_money_wallets": smart_wallets,
             "risk_factors": risk_list,
+            "unverified_fields": unverified,
             "ai_summary": ai_sum,
             "analysis_source": analysis_source,
             "paid_amount": str(payment_amount)
@@ -605,6 +699,10 @@ class MemeRugAuditor(gl.Contract):
                 risks = json.loads(rec.risk_factors_json)
             except Exception:
                 risks = []
+            try:
+                unverified = json.loads(rec.unverified_fields_json)
+            except Exception:
+                unverified = []
             return {
                 "has_audit": True,
                 "request_id": rec.request_id,
@@ -617,7 +715,10 @@ class MemeRugAuditor(gl.Contract):
                 "freeze_disabled": rec.freeze_disabled,
                 "lp_burned_pct": rec.lp_burned_pct,
                 "top10_holder_pct": rec.top10_holder_pct,
+                "holder_count": rec.holder_count,
+                "smart_money_wallets": rec.smart_money_wallets,
                 "risk_factors": risks,
+                "unverified_fields": unverified,
                 "ai_summary": rec.ai_summary,
                 "analysis_source": rec.analysis_source,
                 "audited_at_block": rec.audited_at_block,
@@ -646,6 +747,10 @@ class MemeRugAuditor(gl.Contract):
                 risks = json.loads(rec.risk_factors_json)
             except Exception:
                 risks = []
+            try:
+                unverified = json.loads(rec.unverified_fields_json)
+            except Exception:
+                unverified = []
 
             return {
                 "has_audit": True,
@@ -659,7 +764,10 @@ class MemeRugAuditor(gl.Contract):
                 "freeze_disabled": rec.freeze_disabled,
                 "lp_burned_pct": rec.lp_burned_pct,
                 "top10_holder_pct": rec.top10_holder_pct,
+                "holder_count": rec.holder_count,
+                "smart_money_wallets": rec.smart_money_wallets,
                 "risk_factors": risks,
+                "unverified_fields": unverified,
                 "ai_summary": rec.ai_summary,
                 "analysis_source": rec.analysis_source,
                 "paid_amount": str(rec.paid_amount)

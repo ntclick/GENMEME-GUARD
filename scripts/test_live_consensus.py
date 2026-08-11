@@ -28,8 +28,12 @@ CONTRACT_FILE = os.path.normpath(
 )
 WIF_CA = "EKpQGSJtjMFqKZ9KQanSqYXRcF8fBopzLHYxdM65zcjm"
 
-# Real WIF-scale figures. Authority flags and liquidity are present, so the
-# contract has the evidence it demands and will proceed to the model round.
+# Real WIF-scale market figures plus the authority flags the audit refuses to
+# proceed without. Deliberately no lp_burned_pct / holder_count /
+# smart_money_wallets / top10_holder_pct: asserting those here would hand the
+# contract numbers this script invented, which is exactly what the evidence
+# checks exist to catch. Whatever RugCheck returns for them stands, and
+# anything it does not cover comes back marked unverified.
 FULL_TELEMETRY = json.dumps({
     "token_symbol": "WIF",
     "token_name": "dogwifhat",
@@ -41,12 +45,8 @@ FULL_TELEMETRY = json.dumps({
     "price_change_24h_pct": 5.2,
     "txns_24h_buys": 14200,
     "txns_24h_sells": 11800,
-    "holder_count": 185400,
-    "smart_money_wallets": 42,
-    "top10_holder_pct": 18,
     "mint_disabled": True,
     "freeze_disabled": True,
-    "lp_burned_pct": 100,
     "detected_risks": []
 })
 

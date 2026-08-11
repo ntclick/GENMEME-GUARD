@@ -192,12 +192,19 @@ def test_meme_rug_auditor_audit_flow(direct_vm, direct_deploy, direct_alice):
     assert report["has_audit"] is True
     assert report["token_address"] == token_ca
     assert report["token_symbol"] == "WIF"
-    assert report["safety_score"] == 92
+    # RUGCHECK_RESPONSE carries authority flags but no markets/holders block, so
+    # the distribution metrics have no evidence behind them. The model's
+    # lp_burned_pct 100 and top10_holder_pct 18 are therefore discarded, and the
+    # rubric's +5 "LP burned >= 95%" bonus is taken back off its 92.
+    assert report["safety_score"] == 87
     assert report["verdict"] == "SAFE_TO_TRADE"
     assert report["mint_disabled"] is True
     assert report["freeze_disabled"] is True
-    assert report["lp_burned_pct"] == 100
-    assert report["top10_holder_pct"] == 18
+    assert report["lp_burned_pct"] == 0
+    assert report["top10_holder_pct"] == 0
+    assert set(report["unverified_fields"]) == {
+        "lp_burned_pct", "top10_holder_pct", "holder_count", "smart_money_wallets"
+    }
 
     overview = contract.get_overview()
     assert overview["audited_count"] == 1
@@ -310,6 +317,117 @@ def test_llm_verdict_drives_stored_report(direct_vm, direct_deploy, direct_alice
     assert report["verdict"] == "HIGH_VOLATILITY_WARN"
     assert "momentum exhaustion" in report["risk_factors"][0]
     assert report["ai_summary"] == "Model brief: elevated volatility despite deep liquidity."
+
+
+def test_evidence_backed_metrics_are_kept(direct_vm, direct_deploy, direct_alice):
+    """When RugCheck really reports LP burn and holder data, those figures are
+    stored, nothing is marked unverified, and the LP bonus stands."""
+    direct_vm.sender = direct_alice
+    mock_live_sources(direct_vm, rugcheck={
+        "token": {"mintAuthority": None, "freezeAuthority": None},
+        "risks": [],
+        "score": 92,
+        "markets": [{"lp": {"lpBurnedPct": 97}}],
+        "topHoldersPct": 21,
+        "totalHolders": 185400,
+        "topHolders": [
+            {"pct": 1.5, "insider": False},   # counts as smart money
+            {"pct": 2.0, "insider": False},   # counts
+            {"pct": 8.0, "insider": False},   # too large
+            {"pct": 0.1, "insider": False},   # too small
+            {"pct": 1.0, "insider": True},    # insider
+        ],
+    })
+    direct_vm.mock_llm(r".*", llm_verdict(
+        safety_score=92, lp_burned_pct=100, top10_holder_pct=18,
+        holder_count=1, smart_money_wallets=1,
+    ))
+
+    contract = direct_deploy(CONTRACT)
+    contract.audit_token(WIF_CA, request_id="req_evidence_1", payment_amount=1000)
+
+    report = contract.get_audit(WIF_CA)
+    assert report["unverified_fields"] == []
+    assert report["safety_score"] == 92          # bonus kept: LP burn is real
+    assert report["lp_burned_pct"] == 97         # RugCheck value, not the model's 100
+    assert report["top10_holder_pct"] == 21      # RugCheck value, not the model's 18
+    assert report["holder_count"] == 185400      # model said 1
+    assert report["smart_money_wallets"] == 2    # counted from topHolders, model said 1
+
+
+def test_fetched_evidence_beats_caller_telemetry(direct_vm, direct_deploy, direct_alice):
+    """telemetry_json comes from an untrusted caller. Where RugCheck answers,
+    its figures win, so a caller cannot talk a token into looking safe."""
+    direct_vm.sender = direct_alice
+    mock_live_sources(direct_vm, rugcheck={
+        "token": {"mintAuthority": "SomeMintAuthorityPubkey", "freezeAuthority": None},
+        "risks": [],
+        "score": 30,
+        "markets": [{"lp": {"lpBurnedPct": 12}}],
+    })
+    direct_vm.mock_llm(r".*", llm_verdict(safety_score=95, verdict="SAFE_TO_TRADE"))
+
+    lying_telemetry = json.dumps({
+        "token_symbol": "WIF",
+        "fdv_usd": 2450000000.0,
+        "liquidity_usd": 15420000.0,
+        "txns_24h_buys": 14200,
+        "txns_24h_sells": 11800,
+        "mint_disabled": True,     # false: RugCheck reports a live mint authority
+        "freeze_disabled": True,
+        "lp_burned_pct": 100,      # false: RugCheck reports 12%
+    })
+
+    contract = direct_deploy(CONTRACT)
+    contract.audit_token(WIF_CA, request_id="req_lying_telemetry_1", payment_amount=1000,
+                         telemetry_json=lying_telemetry)
+
+    report = contract.get_audit(WIF_CA)
+    assert report["mint_disabled"] is False          # RugCheck won
+    assert report["lp_burned_pct"] == 12             # RugCheck won, not the claimed 100
+    assert report["verdict"] == "CRITICAL_RUG_RISK"  # forced by the live authority
+    assert report["safety_score"] <= 49
+
+
+def test_unbacked_lp_burn_claim_is_stripped(direct_vm, direct_deploy, direct_alice):
+    """A model that claims a fully burned LP with nothing backing it loses both
+    the number and the bonus the rubric grants for it."""
+    direct_vm.sender = direct_alice
+    mock_live_sources(direct_vm, rugcheck={
+        "token": {"mintAuthority": None, "freezeAuthority": None},
+        "risks": [],
+        "score": 90,
+    })
+    direct_vm.mock_llm(r".*", llm_verdict(safety_score=90, lp_burned_pct=100))
+
+    contract = direct_deploy(CONTRACT)
+    contract.audit_token(WIF_CA, request_id="req_unbacked_lp_1", payment_amount=1000)
+
+    report = contract.get_audit(WIF_CA)
+    assert report["lp_burned_pct"] == 0
+    assert "lp_burned_pct" in report["unverified_fields"]
+    assert report["safety_score"] == 85  # 90 minus the reclaimed +5
+    assert any("LP Burn Unverified" in r for r in report["risk_factors"])
+
+
+def test_modest_lp_claim_keeps_score(direct_vm, direct_deploy, direct_alice):
+    """Only the >= 95% bonus is reclaimed. A model reporting an unbacked but
+    unremarkable LP figure loses the number, not points it never gained."""
+    direct_vm.sender = direct_alice
+    mock_live_sources(direct_vm, rugcheck={
+        "token": {"mintAuthority": None, "freezeAuthority": None},
+        "risks": [], "score": 70,
+    })
+    direct_vm.mock_llm(r".*", llm_verdict(
+        safety_score=70, verdict="HIGH_VOLATILITY_WARN", lp_burned_pct=60,
+    ))
+
+    contract = direct_deploy(CONTRACT)
+    contract.audit_token(WIF_CA, request_id="req_modest_lp_1", payment_amount=1000)
+
+    report = contract.get_audit(WIF_CA)
+    assert report["lp_burned_pct"] == 0
+    assert report["safety_score"] == 70  # untouched
 
 
 def test_audit_reverts_when_llm_round_unavailable(direct_vm, direct_deploy, direct_alice):
