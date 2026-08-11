@@ -24,7 +24,8 @@ import {
   CheckCircle2,
   AlertTriangle,
   Award,
-  Layers
+  Layers,
+  X
 } from 'lucide-react';
 
 const DEFAULT_CONTRACT = '0x2e92EC8587377Dd27FF3d51dABe2f6238d9323F1';
@@ -145,6 +146,45 @@ const DISTRIBUTION_METRICS = [
   { key: 'smart_money_wallets', label: 'Smart money', format: (v) => (v ?? 0).toLocaleString() },
 ];
 
+// The badge, the banner, the gauge and the result modal all classify a report
+// into the same three bands. Deciding that in one place keeps them from drifting
+// apart and showing a red score next to a green headline.
+function verdictTone(score, verdict) {
+  if (score >= 80 || verdict === 'SAFE_TO_TRADE') return 'safe';
+  if (score >= 50 || verdict === 'HIGH_VOLATILITY_WARN') return 'warn';
+  return 'critical';
+}
+
+const TONE = {
+  safe: {
+    color: '#22c55e',
+    badge: 'badge-safe',
+    label: 'SAFE TO TRADE',
+    eyebrow: 'Buy recommendation',
+    headline: 'Recommended entry — low rug risk',
+    detail: 'Mint and freeze authorities are disabled, and liquidity supports trading at this size.',
+    Icon: ShieldCheck,
+  },
+  warn: {
+    color: '#f5a623',
+    badge: 'badge-warn',
+    label: 'HIGH VOLATILITY',
+    eyebrow: 'Buy recommendation — volatility warning',
+    headline: 'Proceed with caution',
+    detail: 'Elevated price swings, thin depth or sell pressure. Size positions accordingly.',
+    Icon: AlertTriangle,
+  },
+  critical: {
+    color: '#ef4444',
+    badge: 'badge-critical',
+    label: 'CRITICAL RISK',
+    eyebrow: 'Critical warning',
+    headline: 'Do not buy — honeypot or inflation risk',
+    detail: 'A live mint/freeze authority, unburned LP or a failing score. High probability of loss.',
+    Icon: ShieldAlert,
+  },
+};
+
 // Consensus rounds that ended without a stored verdict. The audit fails closed,
 // so these are real outcomes the user has to see, not states worth polling on.
 const TERMINAL_FAILURE_STATUSES = {
@@ -241,6 +281,10 @@ export default function App() {
   const [auditReport, setAuditReport] = useState(null);
   const [isAuditing, setIsAuditing] = useState(false);
   const [auditStatusText, setAuditStatusText] = useState('');
+  // Raised only by a consensus round this session actually ran. Selecting a
+  // token loads whatever audit already exists on chain, and interrupting that
+  // with a modal the user never asked for would be noise.
+  const [showResultModal, setShowResultModal] = useState(false);
 
   // Recent audits history directly from contract
   const [recentAudits, setRecentAudits] = useState([]);
@@ -416,6 +460,21 @@ export default function App() {
     }
   }, []);
 
+  // A modal that can only be dismissed with the mouse traps keyboard users, and
+  // one that lets the page scroll underneath it drags the report out of view
+  // while the reader is still in the dialog.
+  useEffect(() => {
+    if (!showResultModal) return;
+    const onKey = (e) => { if (e.key === 'Escape') setShowResultModal(false); };
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    window.addEventListener('keydown', onKey);
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      window.removeEventListener('keydown', onKey);
+    };
+  }, [showResultModal]);
+
   // Handle token selection / input change. Clears any stale report first,
   // then looks up whatever audit already exists on-chain for this token
   // (read-only, no wallet interaction) so the UI always reflects the latest
@@ -425,6 +484,7 @@ export default function App() {
     setTokenAddress(ca);
     setActivePreset(symbol);
     setAuditReport(null);
+    setShowResultModal(false);
     setLastTxHash(sessionTxHashes[ca] || '');
     setLastRequestId(sessionRequestIds[ca] || '');
     if (ca.trim()) {
@@ -461,6 +521,7 @@ export default function App() {
 
     // IMMEDIATELY CLEAR STALE AUDIT & ENTER LOADING STATE
     setAuditReport(null);
+    setShowResultModal(false);
     setIsAuditing(true);
     setAuditStatusText(`Switching MetaMask to GenLayer StudioNet (Chain ID: 61999)...`);
 
@@ -540,6 +601,7 @@ export default function App() {
           const loaded = await loadAuditFromChain(tokenAddress, uniqueRequestId);
           if (loaded) {
             setAuditStatusText('Fresh on-chain AI audit consensus completed.');
+            setShowResultModal(true);
             loadOverviewFromChain();
             return;
           }
@@ -555,6 +617,7 @@ export default function App() {
           const loaded = await loadAuditFromChain(tokenAddress, uniqueRequestId);
           if (loaded) {
             setAuditStatusText('Fresh on-chain AI audit consensus completed.');
+            setShowResultModal(true);
             loadOverviewFromChain();
             return;
           }
@@ -591,52 +654,141 @@ export default function App() {
     }
   };
 
-  // Render an actionable verdict banner with strict tier rules:
-  // 1. Score >= 80 -> safe
-  // 2. Score 50-79 -> warning
-  // 3. Score < 50 -> critical
-  const renderBuyDecisionBanner = (score, verdict) => {
-    if (score >= 80 || verdict === 'SAFE_TO_TRADE') {
-      return (
-        <div className="verdict-banner verdict-safe">
-          <div className="icon"><ShieldCheck size={18} strokeWidth={2.5} /></div>
-          <div>
-            <div className="eyebrow">Buy recommendation</div>
-            <div className="headline">Recommended entry — low rug risk</div>
-            <div className="detail">Mint &amp; freeze authorities disabled. Liquidity and buy pressure support trading safety.</div>
+  const renderResultModal = () => {
+    if (!showResultModal || !auditReport) return null;
+    const score = auditReport.safety_score;
+    const tone = verdictTone(score, auditReport.verdict);
+    const { color, badge, label, headline, detail, Icon } = TONE[tone];
+    const symbol = (auditReport.token_symbol && auditReport.token_symbol !== 'UNKNOWN')
+      ? auditReport.token_symbol
+      : (dexData?.baseToken?.symbol || activePreset || 'Token');
+    const close = () => setShowResultModal(false);
+
+    return (
+      <div
+        className="modal-backdrop"
+        onClick={close}
+        role="dialog"
+        aria-modal="true"
+        aria-label={`Audit result for ${symbol}`}
+      >
+        {/* Clicking the sheet itself must not dismiss it — only the backdrop. */}
+        <div className="modal" onClick={(e) => e.stopPropagation()}>
+          <div className={`modal-accent ${tone}`} />
+
+          <div className="modal-head">
+            <div>
+              <div className="modal-eyebrow">Consensus finalized on-chain</div>
+              <div className="modal-token">{symbol} audit result</div>
+            </div>
+            <button className="modal-close" onClick={close} aria-label="Close">
+              <X size={16} />
+            </button>
+          </div>
+
+          <div className="modal-body">
+            <div className="modal-score-row">
+              <div className="modal-score" style={{ color }}>
+                {score}<span className="out-of">/100</span>
+              </div>
+              <div style={{ flex: 1, minWidth: '200px' }}>
+                <span className={`badge ${badge}`}><Icon size={13} /> {label}</span>
+                <div className="modal-headline" style={{ marginTop: '0.45rem' }}>{headline}</div>
+                <div className="modal-sub">{detail}</div>
+              </div>
+            </div>
+
+            <div className="modal-section">
+              <div className="modal-section-title">Forensic brief</div>
+              <div className="modal-summary">{auditReport.ai_summary}</div>
+            </div>
+
+            <div className="modal-section">
+              <div className="modal-section-title">Key findings</div>
+              <div className="grid-4" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))' }}>
+                <div className="metric-tile">
+                  <div className="metric-label">Mint authority</div>
+                  <div className={`indicator-value ${auditReport.mint_disabled ? 'ok' : 'risk'}`}>
+                    {auditReport.mint_disabled ? 'Disabled' : 'ACTIVE'}
+                  </div>
+                </div>
+                <div className="metric-tile">
+                  <div className="metric-label">Freeze authority</div>
+                  <div className={`indicator-value ${auditReport.freeze_disabled ? 'ok' : 'risk'}`}>
+                    {auditReport.freeze_disabled ? 'Disabled' : 'ACTIVE'}
+                  </div>
+                </div>
+                {DISTRIBUTION_METRICS.slice(0, 2).map(({ key, label: metricLabel, format }) => {
+                  const unknown = (auditReport.unverified_fields || []).includes(key);
+                  return (
+                    <div className="metric-tile" key={key}>
+                      <div className="metric-label">{metricLabel}</div>
+                      <div className="metric-value" style={unknown ? { color: 'var(--text-tertiary)' } : undefined}>
+                        {unknown ? 'Unknown' : format(auditReport[key])}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+
+            {auditReport.risk_factors && auditReport.risk_factors.length > 0 && (
+              <div className="modal-section">
+                <div className="modal-section-title">Risk signals ({auditReport.risk_factors.length})</div>
+                <div className="risk-box">
+                  <ul>
+                    {auditReport.risk_factors.map((risk, i) => <li key={i}>{risk}</li>)}
+                  </ul>
+                </div>
+              </div>
+            )}
+
+            {auditReport.scale_tier && (
+              <div style={{ display: 'flex', gap: '0.4rem', flexWrap: 'wrap' }}>
+                <div className="tag" style={{ color: 'var(--accent)', borderColor: 'var(--accent-border)', background: 'var(--accent-soft)' }}>
+                  <Cpu size={11} /> LLM multi-validator consensus
+                </div>
+                <div className="tag">
+                  <Layers size={11} /> {auditReport.scale_tier} · ceiling {auditReport.score_ceiling}
+                </div>
+              </div>
+            )}
+
+            <div className="modal-footer">
+              {activeTxHash && (
+                <a
+                  href={`${EXPLORER_BASE_URL}/tx/${activeTxHash}`}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="btn btn-secondary"
+                >
+                  View transaction <ExternalLink size={13} />
+                </a>
+              )}
+              <button className="btn btn-primary" onClick={close}>Done</button>
+            </div>
           </div>
         </div>
-      );
-    } else if (score >= 50 || verdict === 'HIGH_VOLATILITY_WARN') {
-      return (
-        <div className="verdict-banner verdict-warn">
-          <div className="icon"><AlertTriangle size={18} strokeWidth={2.5} /></div>
-          <div>
-            <div className="eyebrow">Buy recommendation — volatility warning</div>
-            <div className="headline">Proceed with caution</div>
-            <div className="detail">Elevated price swings or sell volume spikes detected. Use strict risk management.</div>
-          </div>
-        </div>
-      );
-    } else {
-      return (
-        <div className="verdict-banner verdict-critical">
-          <div className="icon"><ShieldAlert size={18} strokeWidth={2.5} /></div>
-          <div>
-            <div className="eyebrow">Critical warning</div>
-            <div className="headline">Do not buy — honeypot or inflation risk</div>
-            <div className="detail">Score below 50, an active mint/freeze authority, or unburned LP. High probability of loss.</div>
-          </div>
-        </div>
-      );
-    }
+      </div>
+    );
   };
 
-  const getGaugeColor = (score, verdict) => {
-    if (score >= 80 || verdict === 'SAFE_TO_TRADE') return '#22c55e';
-    if (score >= 50 || verdict === 'HIGH_VOLATILITY_WARN') return '#f5a623';
-    return '#ef4444';
+  const renderBuyDecisionBanner = (score, verdict) => {
+    const tone = verdictTone(score, verdict);
+    const { Icon, eyebrow, headline, detail } = TONE[tone];
+    return (
+      <div className={`verdict-banner verdict-${tone}`}>
+        <div className="icon"><Icon size={18} strokeWidth={2.5} /></div>
+        <div>
+          <div className="eyebrow">{eyebrow}</div>
+          <div className="headline">{headline}</div>
+          <div className="detail">{detail}</div>
+        </div>
+      </div>
+    );
   };
+
+  const getGaugeColor = (score, verdict) => TONE[verdictTone(score, verdict)].color;
 
   // Smart Money & Whale Sentiment Detector
   const getSmartMoneySignal = () => {
@@ -662,6 +814,8 @@ export default function App() {
 
   return (
     <div className="page">
+      {renderResultModal()}
+
       {/* ---------- Topbar ---------- */}
       <header className="topbar">
         <div className="brand">
