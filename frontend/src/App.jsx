@@ -45,13 +45,134 @@ const GENLAYER_STUDIONET_CHAIN = {
   blockExplorerUrls: [EXPLORER_BASE_URL]
 };
 
-const PRESET_TOKENS = [
-  { symbol: 'SGL', name: 'Singularity Layer', address: '5c4HyD2rSShqnTsf5z3SaoD2H3GE452u2CUuYjviBAGS' },
-  { symbol: 'WIF', name: 'Dogwifhat', address: 'EKpQGSJtjMFqKZ9KQanSqYXRcF8fBopzLHYxdM65zcjm' },
-  { symbol: 'BONK', name: 'Bonk', address: 'DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263' },
-  { symbol: 'POPCAT', name: 'Popcat', address: '7GCihgDB8fe6KNjn2MYtkzZcRjQy3t9GHdC8uHYmW2hr' },
-  { symbol: 'TRUMP', name: 'Official Trump', address: '6p6xgHyF7AeE6TZkSmFsko444wqoP15icUSqi2jfPump' },
+// ---------- Trending token discovery (live, from DEXScreener) ----------
+//
+// DEXScreener publishes no "top tokens" endpoint, so the candidate pool is
+// pooled from the three lists it does expose. Those lists are paid placements,
+// not a popularity ranking: a straight render of them puts freshly minted
+// pump.fun tokens in front of the user as if the app endorsed them. So the
+// pool is only a starting set — every candidate is then re-fetched for its real
+// pair data and has to earn its slot on liquidity, volume and market cap.
+const DEXS_DISCOVERY_SOURCES = [
+  'https://api.dexscreener.com/token-boosts/top/v1',
+  'https://api.dexscreener.com/token-boosts/latest/v1',
+  'https://api.dexscreener.com/token-profiles/latest/v1',
 ];
+
+// DEXScreener's batch token endpoint takes at most 30 addresses per call.
+const DEXS_BATCH_SIZE = 30;
+const TRENDING_SLOTS = 6;
+
+// Calibrated against live responses: of ~50 candidates carrying pair data,
+// roughly five clear this. Loosening it lets in tokens with $3k of liquidity
+// against $2M of daily volume — the wash-trading signature this app exists to
+// warn about, which has no business being offered as a suggestion.
+const TRENDING_GATES = {
+  minLiquidityUsd: 50000,
+  minVolume24hUsd: 50000,
+  minFdvUsd: 500000,
+  // Volume far above the pool that supposedly supports it is manufactured, not
+  // traded. Real books do not turn over fifty times their own depth in a day.
+  maxVolumeToLiquidity: 50,
+};
+
+const num = (v) => {
+  const n = Number(v);
+  return Number.isFinite(n) ? n : 0;
+};
+
+// Compact USD for the trending chips' hover text, where "$1.6M" beats
+// "$1,605,316" — the reader is comparing magnitudes, not auditing a figure.
+const formatUsd = (v) =>
+  `$${num(v).toLocaleString(undefined, { notation: 'compact', maximumFractionDigits: 1 })}`;
+
+// Reduce a token's pairs to the one with the deepest book, which is the pair
+// whose liquidity and volume actually describe the token.
+function deepestPairsByToken(pairs) {
+  const best = new Map();
+  for (const p of pairs) {
+    if (!p || p.chainId !== 'solana') continue;
+    const address = p.baseToken?.address;
+    if (!address) continue;
+    const liquidityUsd = num(p.liquidity?.usd);
+    const existing = best.get(address);
+    if (!existing || liquidityUsd > existing.liquidityUsd) {
+      best.set(address, {
+        address,
+        symbol: p.baseToken?.symbol || '',
+        name: p.baseToken?.name || '',
+        liquidityUsd,
+        volume24hUsd: num(p.volume?.h24),
+        fdvUsd: num(p.fdv),
+        priceChange24h: num(p.priceChange?.h24),
+      });
+    }
+  }
+  return best;
+}
+
+function passesTrendingGates(t) {
+  if (!t.symbol) return false;
+  if (t.liquidityUsd < TRENDING_GATES.minLiquidityUsd) return false;
+  if (t.volume24hUsd < TRENDING_GATES.minVolume24hUsd) return false;
+  if (t.fdvUsd < TRENDING_GATES.minFdvUsd) return false;
+  return t.volume24hUsd / Math.max(t.liquidityUsd, 1) <= TRENDING_GATES.maxVolumeToLiquidity;
+}
+
+// Returns the trending tokens that survive the gates, ranked by 24h volume.
+// Returns [] rather than throwing: an empty chip row is a legitimate outcome
+// here (nothing trending is currently liquid enough to suggest) and the address
+// box works regardless, so a discovery failure must not take the page with it.
+async function fetchTrendingSolanaTokens(signal) {
+  const lists = await Promise.all(
+    DEXS_DISCOVERY_SOURCES.map(async (url) => {
+      try {
+        const res = await fetch(url, { signal, cache: 'no-store' });
+        if (!res.ok) return [];
+        const data = await res.json();
+        return Array.isArray(data) ? data : [];
+      } catch {
+        return [];
+      }
+    })
+  );
+
+  const addresses = [
+    ...new Set(
+      lists
+        .flat()
+        .filter((e) => e && e.chainId === 'solana' && e.tokenAddress)
+        .map((e) => e.tokenAddress)
+    ),
+  ];
+  if (addresses.length === 0) return [];
+
+  const batches = [];
+  for (let i = 0; i < addresses.length; i += DEXS_BATCH_SIZE) {
+    batches.push(addresses.slice(i, i + DEXS_BATCH_SIZE));
+  }
+
+  const pairGroups = await Promise.all(
+    batches.map(async (batch) => {
+      try {
+        const res = await fetch(
+          `https://api.dexscreener.com/latest/dex/tokens/${batch.join(',')}`,
+          { signal, cache: 'no-store' }
+        );
+        if (!res.ok) return [];
+        const data = await res.json();
+        return Array.isArray(data?.pairs) ? data.pairs : [];
+      } catch {
+        return [];
+      }
+    })
+  );
+
+  return [...deepestPairsByToken(pairGroups.flat()).values()]
+    .filter(passesTrendingGates)
+    .sort((a, b) => b.volume24hUsd - a.volume24hUsd)
+    .slice(0, TRENDING_SLOTS);
+}
 
 // Helper to switch or add GenLayer StudioNet chain (Chain ID: 61999 -> 0xf22f)
 const ensureGenLayerNetwork = async () => {
@@ -289,6 +410,30 @@ export default function App() {
   // Recent audits history directly from contract
   const [recentAudits, setRecentAudits] = useState([]);
   const [totalAudits, setTotalAudits] = useState(0);
+
+  // Trending tokens discovered live from DEXScreener, replacing the hardcoded
+  // preset row. Empty is a real state, not just a pre-load one, so the two are
+  // tracked separately — "nothing qualified" and "still looking" read very
+  // differently to someone waiting for the chips to appear.
+  const [trendingTokens, setTrendingTokens] = useState([]);
+  const [trendingLoading, setTrendingLoading] = useState(true);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    let active = true;
+    (async () => {
+      try {
+        const tokens = await fetchTrendingSolanaTokens(controller.signal);
+        if (active) setTrendingTokens(tokens);
+      } finally {
+        if (active) setTrendingLoading(false);
+      }
+    })();
+    return () => {
+      active = false;
+      controller.abort();
+    };
+  }, []);
 
   // Connect user's MetaMask Wallet & Switch to GenLayer StudioNet (Chain ID: 61999 / 0xf22f)
   const connectMetaMask = async () => {
@@ -995,17 +1140,39 @@ export default function App() {
           </div>
 
           <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', flexWrap: 'wrap' }}>
-            <span style={{ fontSize: '0.82rem', color: 'var(--text-tertiary)' }}>Popular:</span>
-            {PRESET_TOKENS.map((token) => (
-              <button
-                key={token.symbol}
-                className={`chip ${activePreset === token.symbol ? 'active' : ''}`}
-                onClick={() => handleSelectToken(token.address, token.symbol)}
-                disabled={isAuditing}
+            <span style={{ fontSize: '0.82rem', color: 'var(--text-tertiary)' }}>Trending on DEXScreener:</span>
+            {trendingLoading ? (
+              <span
+                style={{
+                  fontSize: '0.82rem',
+                  color: 'var(--text-tertiary)',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '0.4rem',
+                }}
               >
-                {token.symbol}
-              </button>
-            ))}
+                <RefreshCw size={12} className="spinner" /> Loading live tokens...
+              </span>
+            ) : trendingTokens.length === 0 ? (
+              <span style={{ fontSize: '0.82rem', color: 'var(--text-tertiary)' }}>
+                No trending token currently clears the liquidity and volume floor — paste a mint
+                address above.
+              </span>
+            ) : (
+              trendingTokens.map((token) => (
+                <button
+                  key={token.address}
+                  className={`chip ${activePreset === token.symbol ? 'active' : ''}`}
+                  onClick={() => handleSelectToken(token.address, token.symbol)}
+                  disabled={isAuditing}
+                  title={`${token.name || token.symbol} — liquidity ${formatUsd(
+                    token.liquidityUsd
+                  )}, 24h volume ${formatUsd(token.volume24hUsd)}. Trending only: not an endorsement.`}
+                >
+                  {token.symbol}
+                </button>
+              ))
+            )}
           </div>
 
           {isAuditing && (
@@ -1093,7 +1260,7 @@ export default function App() {
           ) : (
             <div className="empty">
               <Search size={30} />
-              <p className="hint">Paste a Solana mint address or select a popular token to view live data.</p>
+              <p className="hint">Paste a Solana mint address or pick a trending token to view live data.</p>
             </div>
           )}
 
@@ -1246,7 +1413,7 @@ export default function App() {
                 <p style={{ fontSize: '0.78rem', color: 'var(--text-tertiary)', fontFamily: 'var(--font-mono)', marginTop: '0.3rem' }}>{tokenAddress}</p>
               )}
               <p className="hint">
-                {tokenAddress.trim() ? 'Click "Run AI audit" to sign with MetaMask and execute a new GenLayer consensus round.' : 'Paste a token address above or pick a preset to start.'}
+                {tokenAddress.trim() ? 'Click "Run AI audit" to sign with MetaMask and execute a new GenLayer consensus round.' : 'Paste a token address above or pick a trending token to start.'}
               </p>
             </div>
           )}
