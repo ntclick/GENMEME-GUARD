@@ -2,7 +2,7 @@
 GenMeme Guard - Live On-Chain AI Audit Test Script
 
 Queries live DEX & Birdeye metrics and triggers a real AI Consensus Audit on GenLayer StudioNet:
-Contract Address: 0xcf8B56fc8ec5C1A0bce8E064D4516C49D63fD3eb
+Contract Address: 0x2e92EC8587377Dd27FF3d51dABe2f6238d9323F1
 """
 
 import os
@@ -15,7 +15,7 @@ from genlayer_py import create_client, create_account, studionet
 load_dotenv()
 
 PRIVATE_KEY = os.getenv("GENLAYER_PRIVATE_KEY")
-CONTRACT_ADDRESS = os.getenv("CONTRACT_ADDRESS", "0xcf8B56fc8ec5C1A0bce8E064D4516C49D63fD3eb")
+CONTRACT_ADDRESS = os.getenv("CONTRACT_ADDRESS", "0x2e92EC8587377Dd27FF3d51dABe2f6238d9323F1")
 
 # Default Test Token: WIF (dogwifhat)
 TOKEN_CA = sys.argv[1] if len(sys.argv) > 1 else "EKpQGSJtjMFqKZ9KQanSqYXRcF8fBopzLHYxdM65zcjm"

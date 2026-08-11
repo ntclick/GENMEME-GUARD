@@ -14,8 +14,8 @@ from genlayer_py import create_client, create_account, studionet
 load_dotenv()
 
 EXPLORER_BASE_URL = "https://explorer-studio.genlayer.com"
-CONTRACT_ADDRESS = "0x6b944E229f32d822cE84292CB713fA8De4553a37"
-DEPLOY_TX_HASH = "0xbc38a6340c29dd3e374d149c0cb72d5b8aa6420f4c425656f91245f041e737e4"
+CONTRACT_ADDRESS = os.getenv("CONTRACT_ADDRESS", "0x2e92EC8587377Dd27FF3d51dABe2f6238d9323F1")
+DEPLOY_TX_HASH = "0xd238ca0ad9bf454e6674d4bac397c922aa908657cfcc9558f50a91ce3dba4520"
 
 TEST_TOKENS = [
     {"name": "Dogwifhat (WIF)", "ca": "EKpQGSJtjMFqKZ9KQanSqYXRcF8fBopzLHYxdM65zcjm"},

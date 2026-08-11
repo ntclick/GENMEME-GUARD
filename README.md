@@ -71,11 +71,34 @@ py -3.12 -m pytest tests/ -v
 
 ## 🌐 Live GenLayer StudioNet Deployment & Explorer Links
 
-- **Active Intelligent Contract Address**: [`0x95BF2eFBcadf2Ea351edd04dA406855a5aB78BcB`](https://explorer-studio.genlayer.com/address/0x95BF2eFBcadf2Ea351edd04dA406855a5aB78BcB)
-- **Contract Explorer Link**: [https://explorer-studio.genlayer.com/address/0x95BF2eFBcadf2Ea351edd04dA406855a5aB78BcB](https://explorer-studio.genlayer.com/address/0x95BF2eFBcadf2Ea351edd04dA406855a5aB78BcB)
-- **Deployment Tx Hash**: `0xc3bd3bc371f7c05ab8e2248510bd5f5dbe7cd174eabc9996af9e658b9fa1fa96`
-- **GenVM Execution Status**: `SUCCESS`
-- **Consensus Result**: `MAJORITY_AGREE` (ACCEPTED with 5/5 Validator Votes)
+- **Active Intelligent Contract Address**: [`0x2e92EC8587377Dd27FF3d51dABe2f6238d9323F1`](https://explorer-studio.genlayer.com/address/0x2e92EC8587377Dd27FF3d51dABe2f6238d9323F1)
+- **Contract Explorer Link**: [https://explorer-studio.genlayer.com/address/0x2e92EC8587377Dd27FF3d51dABe2f6238d9323F1](https://explorer-studio.genlayer.com/address/0x2e92EC8587377Dd27FF3d51dABe2f6238d9323F1)
+- **Deployment Tx Hash**: `0xd238ca0ad9bf454e6674d4bac397c922aa908657cfcc9558f50a91ce3dba4520`
+- **GenVM Execution Status**: `SUCCESS` (`FINALIZED`)
+
+This is the only address to audit. Earlier deployments referenced in the git
+history predate the validator-consensus implementation below and are **not**
+representative of this submission — they are left dead rather than updated so
+nobody reviews the wrong bytecode.
+
+### Proof of real multi-validator consensus
+
+Audit transaction [`0x4acede8acd460291c740c0577c832e2b8808d1c5497aca094489dee6b5e302a2`](https://explorer-studio.genlayer.com/tx/0x4acede8acd460291c740c0577c832e2b8808d1c5497aca094489dee6b5e302a2)
+on the contract above, read back from `sim_getTransactionsForAddress`:
+
+| Field | Value |
+| :--- | :--- |
+| Initial validators | 5 |
+| Leader execution | `SUCCESS` |
+| Validator votes | 3 × `agree`, 1 × `disagree`, 1 × `idle` |
+| Outcome | `FINALIZED` (majority agreement) |
+
+The `disagree` vote is the point worth reading: validators are not rubber-stamping
+a leader receipt. Each one independently re-executes the DEXScreener fetch, the
+RugCheck fetch and the LLM audit inside `validator_fn`, then compares the
+substantive findings — `safety_score` (±10 tolerance), `verdict`, `mint_disabled`
+and `freeze_disabled` — through `_check_equivalence`. A node whose own round
+lands outside that envelope votes against, exactly as one did here.
 
 ---
 
@@ -87,7 +110,8 @@ py -3.12 -m pytest tests/ -v
 | **2. Uses Live Authoritative Data** | Aggregates live DEXScreener market figures (Price, Volume 24h, Liquidity USD, Buy/Sell txns) & RugCheck/Birdeye security metrics (Mint/Freeze revocation, LP Burn %, Holder Count, Smart Money Wallets Count) directly from browser to contract payload. | ✅ PASSED |
 | **3. Complete Source Code & Docs** | 100% complete Python Intelligent Contract ([`contracts/meme_rug_auditor.py`](file:///f:/Work/Cryoto/Gen%20layer/gen2/contracts/meme_rug_auditor.py)), PyTest test suite ([`tests/test_meme_rug_auditor.py`](file:///f:/Work/Cryoto/Gen%20layer/gen2/tests/test_meme_rug_auditor.py)), and Cyberpunk React Web3 Frontend ([`frontend/src/App.jsx`](file:///f:/Work/Cryoto/Gen%20layer/gen2/frontend/src/App.jsx)). | ✅ PASSED |
 | **4. Frontend Handles Full Transaction Lifecycle** | React frontend connects to MetaMask, auto-switches to GenLayer StudioNet (Chain ID: 61999), sends 1,000 Wei fee transaction to `audit_token(...)`, handles mining spinner, and reads finalized on-chain state via `get_audit(...)`. | ✅ PASSED |
-| **5. Meaningfully Different from Boilerplate** | Introduces novel **Scale-Tier Hard Ceilings** (capping micro-caps at 55/100 max), **Buy/Sell Pressure Inflow Index**, and **Equivalence Consensus** logic with 9/9 passing pytest unit tests. | ✅ PASSED |
+| **5. Meaningfully Different from Boilerplate** | Introduces novel **Scale-Tier Hard Ceilings** (capping micro-caps at 55/100 max), **Buy/Sell Pressure Inflow Index**, and **Equivalence Consensus** logic with 28/28 passing pytest unit tests. | ✅ PASSED |
+| **6. Real Validator Consensus, Not a Shape Check** | The web fetch and LLM round run inside `gl.vm.run_nondet_unsafe(leader_fn, validator_fn)`. Every validator re-executes `leader_fn()` itself and gates the result through `_check_equivalence` on score, verdict and both authority flags before anything is stored; a failed round reverts rather than storing a report. Covered by `test_validator_consensus_agrees_on_reexecution` and `test_validator_consensus_rejects_divergent_reexecution`, and evidenced on-chain by the 3-agree/1-disagree vote above. | ✅ PASSED |
 
 ---
 
