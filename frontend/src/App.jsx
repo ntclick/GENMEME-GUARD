@@ -23,10 +23,11 @@ import {
   Sparkles,
   CheckCircle2,
   AlertTriangle,
-  Award
+  Award,
+  Layers
 } from 'lucide-react';
 
-const DEFAULT_CONTRACT = '0x6053bcbD36B2eEfC934152C75C7a78CE3D431C0B';
+const DEFAULT_CONTRACT = '0x2e92EC8587377Dd27FF3d51dABe2f6238d9323F1';
 const STUDIONET_RPC_URL = 'https://studio.genlayer.com/api';
 const EXPLORER_BASE_URL = 'https://explorer-studio.genlayer.com';
 
@@ -996,12 +997,20 @@ export default function App() {
                   <p style={{ fontSize: '0.84rem', color: 'var(--text-secondary)', lineHeight: 1.55, marginTop: '0.35rem' }}>
                     "{auditReport.ai_summary}"
                   </p>
-                  {auditReport.analysis_source && (
-                    <div className="tag" style={{ marginTop: '0.6rem', color: 'var(--accent)', borderColor: 'var(--accent-border)', background: 'var(--accent-soft)' }}>
-                      <Cpu size={11} />
-                      LLM multi-validator consensus
-                    </div>
-                  )}
+                  <div style={{ display: 'flex', gap: '0.4rem', flexWrap: 'wrap', marginTop: '0.6rem' }}>
+                    {auditReport.analysis_source && (
+                      <div className="tag" style={{ color: 'var(--accent)', borderColor: 'var(--accent-border)', background: 'var(--accent-soft)' }}>
+                        <Cpu size={11} />
+                        LLM multi-validator consensus
+                      </div>
+                    )}
+                    {auditReport.scale_tier && (
+                      <div className="tag" title={`Evidence caps this token's score at ${auditReport.score_ceiling}/100`}>
+                        <Layers size={11} />
+                        {auditReport.scale_tier} · ceiling {auditReport.score_ceiling}
+                      </div>
+                    )}
+                  </div>
                 </div>
               </div>
 

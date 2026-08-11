@@ -160,6 +160,72 @@ def _classify_llm_error(exc) -> str:
     return f"LLM_ERROR: {msg}"
 
 
+def _tier_ceiling(fdv: float, liquidity: float):
+    """The rubric's scale-tier hard ceiling for a token of this size.
+
+    Nothing enforced these before — the model was merely asked to respect them,
+    and a run has been observed returning 100/100 while listing deductions that
+    should have pulled it well below that.
+    """
+    if fdv < 100000.0 or liquidity < 20000.0:
+        return 55, "Tier 1 Micro-Cap"
+    if fdv < 1000000.0:
+        return 75, "Tier 2 Small-Cap"
+    if fdv < 10000000.0:
+        return 88, "Tier 3 Mid-Cap"
+    if liquidity > 500000.0:
+        return 100, "Tier 4 Institutional Bluechip"
+    # Tier 4 valuation without Tier 4 liquidity depth does not earn the Tier 4
+    # ceiling; the rubric requires both.
+    return 88, "Tier 4 valuation without Tier 4 liquidity depth"
+
+
+def _evidence_score_ceiling(report: dict, ground_truth: dict, unverified: list):
+    """Highest score the fetched evidence can justify, and why.
+
+    This is a ceiling, not a rescore: the model stays free to judge a token
+    more harshly than the numbers demand. It only prevents the opposite —
+    a score that ignores deductions the rubric makes mandatory. Metrics in
+    *unverified* are skipped entirely, because their stored 0 means "no source
+    supplied this", not "measured as zero", and penalising it would invent a
+    finding just as surely as trusting an invented number would.
+    """
+    ceiling, tier = _tier_ceiling(
+        _safe_float(ground_truth.get("fdv_usd")),
+        _safe_float(ground_truth.get("liquidity_usd")),
+    )
+    reasons = []
+
+    if "lp_burned_pct" not in unverified:
+        lp = _safe_int(report.get("lp_burned_pct"))
+        if lp < 50:
+            ceiling -= 40
+            reasons.append(f"LP burn {lp}% below 50%")
+        elif lp < 80:
+            ceiling -= 20
+            reasons.append(f"LP burn {lp}% below 80%")
+
+    if "top10_holder_pct" not in unverified:
+        top10 = _safe_int(report.get("top10_holder_pct"))
+        if top10 > 40:
+            ceiling -= 25
+            reasons.append(f"top 10 holders control {top10}%")
+
+    if "holder_count" not in unverified:
+        holders = _safe_int(report.get("holder_count"))
+        if holders < 200:
+            ceiling -= 25
+            reasons.append(f"only {holders} holders")
+
+    if "smart_money_wallets" not in unverified:
+        wallets = _safe_int(report.get("smart_money_wallets"))
+        if wallets < 3:
+            ceiling -= 20
+            reasons.append(f"only {wallets} smart money wallets")
+
+    return max(0, ceiling), tier, reasons
+
+
 def _band_verdict(score: int) -> str:
     if score < 50:
         return "CRITICAL_RUG_RISK"
@@ -282,6 +348,22 @@ def _validate_findings(report: dict, ground_truth: dict) -> dict:
 
     report["unverified_fields"] = unverified
 
+    # Hold the score to what the evidence can actually support. Applied after the
+    # metrics above are settled so the ceiling is computed from stored, verified
+    # figures rather than anything the model asserted.
+    ceiling, tier, ceiling_reasons = _evidence_score_ceiling(report, ground_truth, unverified)
+    report["score_ceiling"] = ceiling
+    report["scale_tier"] = tier
+    if report["safety_score"] > ceiling:
+        label = (
+            f"Score capped at {ceiling} by {tier} evidence"
+            + (f" ({'; '.join(ceiling_reasons)})" if ceiling_reasons else "")
+            + f" — model reported {report['safety_score']}"
+        )
+        report["safety_score"] = ceiling
+        if label not in report["risk_factors"]:
+            report["risk_factors"].append(label)
+
     banded = _band_verdict(report["safety_score"])
     if VERDICT_SEVERITY[banded] > VERDICT_SEVERITY[report["verdict"]]:
         report["verdict"] = banded
@@ -314,6 +396,11 @@ class AuditRecord:
     # JSON list naming the metrics above that no source could back, so a reader
     # can tell a measured zero from an unknown one.
     unverified_fields_json: str
+    # The scale tier the evidence put this token in, and the highest score that
+    # tier plus its verified deductions allowed. safety_score can be lower —
+    # the model may judge harshly — but never higher.
+    scale_tier: str
+    score_ceiling: u32
 
 
 class MemeRugAuditor(gl.Contract):
@@ -411,56 +498,60 @@ class MemeRugAuditor(gl.Contract):
                 except Exception:
                     pass
 
-            # 2. Fetch & parse technical market metrics from DEXScreener via gl.nondet.web.get if telemetry is incomplete
-            if not dex_metrics.get("token_symbol") or dex_metrics.get("token_symbol") == "UNKNOWN":
-                dex_url = f"https://api.dexscreener.com/latest/dex/tokens/{token_address}"
-                try:
-                    headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
-                    resp = gl.nondet.web.get(dex_url, headers=headers)
-                    if resp and hasattr(resp, "body") and resp.body:
-                        if isinstance(resp.body, bytes):
-                            raw_dex_str = resp.body.decode("utf-8")
-                        elif isinstance(resp.body, str):
-                            raw_dex_str = resp.body
-                        else:
-                            raw_dex_str = str(resp.body)
+            # 2. Fetch market metrics from DEXScreener. This runs on every audit,
+            # not only when the caller left gaps: market cap and liquidity decide
+            # the scale-tier score ceiling below, so letting an untrusted payload
+            # supply them unchallenged would let a caller buy a Tier 4 ceiling for
+            # a micro-cap by simply asserting the numbers. Whatever this fetch
+            # returns replaces the payload; the payload only stands if it fails.
+            dex_url = f"https://api.dexscreener.com/latest/dex/tokens/{token_address}"
+            try:
+                headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
+                resp = gl.nondet.web.get(dex_url, headers=headers)
+                if resp and hasattr(resp, "body") and resp.body:
+                    if isinstance(resp.body, bytes):
+                        raw_dex_str = resp.body.decode("utf-8")
+                    elif isinstance(resp.body, str):
+                        raw_dex_str = resp.body
                     else:
-                        raw_dex_str = "{}"
+                        raw_dex_str = str(resp.body)
+                else:
+                    raw_dex_str = "{}"
 
-                    raw_dex = json.loads(raw_dex_str)
-                    pairs = raw_dex.get("pairs", [])
-                    if isinstance(pairs, list) and len(pairs) > 0 and isinstance(pairs[0], dict):
-                        p = pairs[0]
-                        base_tok = p.get("baseToken") if isinstance(p.get("baseToken"), dict) else {}
-                        liq = p.get("liquidity") if isinstance(p.get("liquidity"), dict) else {}
-                        vol = p.get("volume") if isinstance(p.get("volume"), dict) else {}
-                        p_chg = p.get("priceChange") if isinstance(p.get("priceChange"), dict) else {}
-                        txns = p.get("txns") if isinstance(p.get("txns"), dict) else {}
-                        txns_h24 = txns.get("h24") if isinstance(txns.get("h24"), dict) else {}
+                raw_dex = json.loads(raw_dex_str)
+                pairs = raw_dex.get("pairs", [])
+                if isinstance(pairs, list) and len(pairs) > 0 and isinstance(pairs[0], dict):
+                    p = pairs[0]
+                    base_tok = p.get("baseToken") if isinstance(p.get("baseToken"), dict) else {}
+                    liq = p.get("liquidity") if isinstance(p.get("liquidity"), dict) else {}
+                    vol = p.get("volume") if isinstance(p.get("volume"), dict) else {}
+                    p_chg = p.get("priceChange") if isinstance(p.get("priceChange"), dict) else {}
+                    txns = p.get("txns") if isinstance(p.get("txns"), dict) else {}
+                    txns_h24 = txns.get("h24") if isinstance(txns.get("h24"), dict) else {}
 
-                        buys = _safe_int(txns_h24.get("buys"))
-                        sells = _safe_int(txns_h24.get("sells"))
-                        smart_money_sentiment = "BUY_ACCUMULATION" if buys > sells * 1.15 else ("WHALE_SELLING_PRESSURE" if sells > buys * 1.15 else "NEUTRAL")
+                    buys = _safe_int(txns_h24.get("buys"))
+                    sells = _safe_int(txns_h24.get("sells"))
+                    smart_money_sentiment = "BUY_ACCUMULATION" if buys > sells * 1.15 else ("WHALE_SELLING_PRESSURE" if sells > buys * 1.15 else "NEUTRAL")
 
-                        dex_metrics = {
-                            "token_symbol": str(base_tok.get("symbol") or "UNKNOWN"),
-                            "token_name": str(base_tok.get("name") or "UNKNOWN"),
-                            "dex_name": str(p.get("dexId") or "UNKNOWN"),
-                            "price_usd": str(p.get("priceUsd") or "0"),
-                            "fdv_usd": _safe_float(p.get("fdv")),
-                            "liquidity_usd": _safe_float(liq.get("usd")),
-                            "volume_24h_usd": _safe_float(vol.get("h24")),
-                            "price_change_5m_pct": _safe_float(p_chg.get("m5")),
-                            "price_change_1h_pct": _safe_float(p_chg.get("h1")),
-                            "price_change_6h_pct": _safe_float(p_chg.get("h6")),
-                            "price_change_24h_pct": _safe_float(p_chg.get("h24")),
-                            "txns_24h_buys": buys,
-                            "txns_24h_sells": sells,
-                            "smart_money_sentiment": smart_money_sentiment,
-                            "volume_to_liquidity_ratio": round(_safe_float(vol.get("h24")) / max(_safe_float(liq.get("usd")), 1.0), 2)
-                        }
-                except Exception as e:
-                    pass
+                    dex_metrics = {
+                        "token_symbol": str(base_tok.get("symbol") or "UNKNOWN"),
+                        "token_name": str(base_tok.get("name") or "UNKNOWN"),
+                        "dex_name": str(p.get("dexId") or "UNKNOWN"),
+                        "price_usd": str(p.get("priceUsd") or "0"),
+                        "fdv_usd": _safe_float(p.get("fdv")),
+                        "liquidity_usd": _safe_float(liq.get("usd")),
+                        "volume_24h_usd": _safe_float(vol.get("h24")),
+                        "price_change_5m_pct": _safe_float(p_chg.get("m5")),
+                        "price_change_1h_pct": _safe_float(p_chg.get("h1")),
+                        "price_change_6h_pct": _safe_float(p_chg.get("h6")),
+                        "price_change_24h_pct": _safe_float(p_chg.get("h24")),
+                        "txns_24h_buys": buys,
+                        "txns_24h_sells": sells,
+                        "smart_money_sentiment": smart_money_sentiment,
+                        "volume_to_liquidity_ratio": round(_safe_float(vol.get("h24")) / max(_safe_float(liq.get("usd")), 1.0), 2)
+                    }
+            except Exception as e:
+                pass
 
             # 3. Fetch & parse technical security metrics from RugCheck via gl.nondet.web.get
             birdeye_url = f"https://api.rugcheck.xyz/v1/tokens/{token_address}/report"
@@ -537,8 +628,7 @@ class MemeRugAuditor(gl.Contract):
                 .replace("{tech_data}", tech_summary_json)
             )
 
-            # Authority status is hard evidence, not model opinion: prefer the
-            # caller's signed telemetry, else the RugCheck fetch.
+            # Authority status is hard evidence, not model opinion.
             # Order matters: the caller's telemetry is applied first so that
             # anything this contract fetched for itself overwrites it. The
             # payload arrives from an untrusted caller who could assert a fully
@@ -553,6 +643,12 @@ class MemeRugAuditor(gl.Contract):
                         if evidence_key in src and src[evidence_key] is not None:
                             ground_truth[evidence_key] = src[evidence_key]
 
+            # Market size decides the scale-tier ceiling. dex_metrics is the
+            # DEXScreener fetch above wherever it succeeded, falling back to the
+            # payload only when it did not.
+            ground_truth["fdv_usd"] = _safe_float(dex_metrics.get("fdv_usd"))
+            ground_truth["liquidity_usd"] = _safe_float(dex_metrics.get("liquidity_usd"))
+
             # An auditor that cannot see the token's authority status cannot
             # certify anything about it. Rather than assume a clean default,
             # the audit fails closed so no report is ever written from absent
@@ -562,10 +658,19 @@ class MemeRugAuditor(gl.Contract):
                     "EXTERNAL: mint/freeze authority status unavailable from RugCheck "
                     "and caller telemetry — refusing to audit without on-chain evidence."
                 )
+            # Both figures are required, not just liquidity: they decide the
+            # scale-tier ceiling, and a missing market cap would otherwise be
+            # read as $0 and silently classify a bluechip as a micro-cap. An
+            # unknown tier is not a conservative tier, it is an unknown one.
             if not dex_metrics or _safe_float(dex_metrics.get("liquidity_usd")) <= 0.0:
                 raise gl.vm.UserError(
                     "EXTERNAL: no live market data for this mint from DEXScreener "
                     "or caller telemetry — refusing to audit without real liquidity."
+                )
+            if _safe_float(dex_metrics.get("fdv_usd")) <= 0.0:
+                raise gl.vm.UserError(
+                    "EXTERNAL: no market capitalisation for this mint from DEXScreener "
+                    "or caller telemetry — refusing to audit without a verifiable scale tier."
                 )
 
             # Non-deterministic LLM round. This is the only source of a verdict:
@@ -634,6 +739,8 @@ class MemeRugAuditor(gl.Contract):
         unverified = consensus_output.get("unverified_fields", [])
         if not isinstance(unverified, list):
             unverified = []
+        scale_tier = str(consensus_output.get("scale_tier", "Unclassified"))
+        score_ceiling = _safe_int(consensus_output.get("score_ceiling", 100))
 
         rec = AuditRecord(
             request_id=request_id,
@@ -650,6 +757,8 @@ class MemeRugAuditor(gl.Contract):
             smart_money_wallets=smart_wallets,
             risk_factors_json=json.dumps(risk_list),
             unverified_fields_json=json.dumps(unverified),
+            scale_tier=scale_tier,
+            score_ceiling=score_ceiling,
             ai_summary=ai_sum,
             audited_at_block=0,
             paid_amount=payment_amount,
@@ -684,6 +793,8 @@ class MemeRugAuditor(gl.Contract):
             "smart_money_wallets": smart_wallets,
             "risk_factors": risk_list,
             "unverified_fields": unverified,
+            "scale_tier": scale_tier,
+            "score_ceiling": score_ceiling,
             "ai_summary": ai_sum,
             "analysis_source": analysis_source,
             "paid_amount": str(payment_amount)
@@ -719,6 +830,8 @@ class MemeRugAuditor(gl.Contract):
                 "smart_money_wallets": rec.smart_money_wallets,
                 "risk_factors": risks,
                 "unverified_fields": unverified,
+                "scale_tier": rec.scale_tier,
+                "score_ceiling": rec.score_ceiling,
                 "ai_summary": rec.ai_summary,
                 "analysis_source": rec.analysis_source,
                 "audited_at_block": rec.audited_at_block,
@@ -768,6 +881,8 @@ class MemeRugAuditor(gl.Contract):
                 "smart_money_wallets": rec.smart_money_wallets,
                 "risk_factors": risks,
                 "unverified_fields": unverified,
+                "scale_tier": rec.scale_tier,
+                "score_ceiling": rec.score_ceiling,
                 "ai_summary": rec.ai_summary,
                 "analysis_source": rec.analysis_source,
                 "paid_amount": str(rec.paid_amount)

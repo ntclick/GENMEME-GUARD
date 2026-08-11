@@ -12,6 +12,7 @@ DEX_RESPONSE = {
         "baseToken": {"symbol": "WIF", "name": "Dogwifhat"},
         "dexId": "raydium",
         "priceUsd": "2.45",
+        "fdv": 2450000000.0,
         "liquidity": {"usd": 1500000.0},
         "volume": {"h24": 5000000.0},
         "priceChange": {"h24": 12.5},
@@ -157,29 +158,7 @@ def test_meme_rug_auditor_audit_flow(direct_vm, direct_deploy, direct_alice):
         "ai_summary": "Dogwifhat token exhibits 100% burned liquidity and mint/freeze authority disabled.",
     }
 
-    dex_response = {
-        "pairs": [
-            {
-                "baseToken": {"symbol": "WIF", "name": "Dogwifhat"},
-                "dexId": "raydium",
-                "priceUsd": "2.45",
-                "liquidity": {"usd": 1500000.0},
-                "volume": {"h24": 5000000.0},
-                "priceChange": {"h24": 12.5},
-                "txns": {"h24": {"buys": 1200, "sells": 800}},
-            }
-        ]
-    }
-
-    rugcheck_response = {
-        "token": {"mintAuthority": None, "freezeAuthority": None},
-        "risks": [{"name": "High volume volatility"}],
-        "score": 92,
-    }
-
-    # Set up GenVM Direct Mode mocks for Web API & LLM calls
-    direct_vm.mock_web(r".*dexscreener\.com.*", {"status": 200, "body": json.dumps(dex_response)})
-    direct_vm.mock_web(r".*rugcheck\.xyz.*", {"status": 200, "body": json.dumps(rugcheck_response)})
+    mock_live_sources(direct_vm)
     direct_vm.mock_llm(r".*", json.dumps(mock_llm_result))
 
     contract = direct_deploy("contracts/meme_rug_auditor.py")
@@ -333,6 +312,9 @@ def test_evidence_backed_metrics_are_kept(direct_vm, direct_deploy, direct_alice
         "topHolders": [
             {"pct": 1.5, "insider": False},   # counts as smart money
             {"pct": 2.0, "insider": False},   # counts
+            {"pct": 3.2, "insider": False},   # counts — keeps the count >= 3 so
+                                              # the ceiling's "retail trap" rule
+                                              # does not fire and muddy this test
             {"pct": 8.0, "insider": False},   # too large
             {"pct": 0.1, "insider": False},   # too small
             {"pct": 1.0, "insider": True},    # insider
@@ -352,7 +334,113 @@ def test_evidence_backed_metrics_are_kept(direct_vm, direct_deploy, direct_alice
     assert report["lp_burned_pct"] == 97         # RugCheck value, not the model's 100
     assert report["top10_holder_pct"] == 21      # RugCheck value, not the model's 18
     assert report["holder_count"] == 185400      # model said 1
-    assert report["smart_money_wallets"] == 2    # counted from topHolders, model said 1
+    assert report["smart_money_wallets"] == 3    # counted from topHolders, model said 1
+    assert report["scale_tier"] == "Tier 4 Institutional Bluechip"
+    assert report["score_ceiling"] == 100
+
+
+def test_micro_cap_cannot_exceed_tier_ceiling(direct_vm, direct_deploy, direct_alice):
+    """The advertised guarantee: a micro-cap is capped at 55 no matter how
+    generously the model scores it. Nothing enforced this before."""
+    direct_vm.sender = direct_alice
+    mock_live_sources(direct_vm, dex={
+        "pairs": [{
+            "baseToken": {"symbol": "SCAM", "name": "Scam Coin"},
+            "dexId": "raydium",
+            "priceUsd": "0.00001",
+            "fdv": 42000.0,             # well under the $100k Tier 1 line
+            "liquidity": {"usd": 9000.0},
+            "volume": {"h24": 5000.0},
+            "priceChange": {"h24": -12.0},
+            "txns": {"h24": {"buys": 10, "sells": 40}},
+        }]
+    })
+    direct_vm.mock_llm(r".*", llm_verdict(safety_score=100, verdict="SAFE_TO_TRADE"))
+
+    contract = direct_deploy(CONTRACT)
+    contract.audit_token(WIF_CA, request_id="req_microcap_ceiling_1", payment_amount=1000)
+
+    report = contract.get_audit(WIF_CA)
+    assert report["scale_tier"] == "Tier 1 Micro-Cap"
+    assert report["score_ceiling"] == 55
+    assert report["safety_score"] == 55          # model's 100 does not survive
+    assert report["verdict"] == "HIGH_VOLATILITY_WARN"
+    assert any("Score capped at 55" in r for r in report["risk_factors"])
+
+
+def test_verified_deductions_lower_the_ceiling(direct_vm, direct_deploy, direct_alice):
+    """Deductions the rubric makes mandatory come off the ceiling when the
+    evidence backs them — here a top-10 concentration RugCheck measured."""
+    direct_vm.sender = direct_alice
+    mock_live_sources(direct_vm, rugcheck={
+        "token": {"mintAuthority": None, "freezeAuthority": None},
+        "risks": [],
+        "score": 90,
+        "markets": [{"lp": {"lpBurnedPct": 100}}],
+        "topHoldersPct": 44,                       # > 40% -> mandatory -25
+        "totalHolders": 500000,
+        "topHolders": [
+            {"pct": 1.0, "insider": False},
+            {"pct": 2.0, "insider": False},
+            {"pct": 3.0, "insider": False},
+        ],
+    })
+    direct_vm.mock_llm(r".*", llm_verdict(safety_score=100, verdict="SAFE_TO_TRADE"))
+
+    contract = direct_deploy(CONTRACT)
+    contract.audit_token(WIF_CA, request_id="req_ceiling_deduction_1", payment_amount=1000)
+
+    report = contract.get_audit(WIF_CA)
+    assert report["scale_tier"] == "Tier 4 Institutional Bluechip"
+    assert report["score_ceiling"] == 75          # 100 tier cap - 25 concentration
+    assert report["safety_score"] == 75
+    assert report["verdict"] == "HIGH_VOLATILITY_WARN"
+
+
+def test_unverified_metrics_never_deduct(direct_vm, direct_deploy, direct_alice):
+    """A stored 0 that means "nobody measured this" must not be punished as if
+    it meant 0% burned or 0 holders — that would invent a finding."""
+    direct_vm.sender = direct_alice
+    mock_live_sources(direct_vm, rugcheck={
+        "token": {"mintAuthority": None, "freezeAuthority": None},
+        "risks": [], "score": 90,
+        # no markets / topHolders / totalHolders at all
+    })
+    direct_vm.mock_llm(r".*", llm_verdict(safety_score=90, verdict="SAFE_TO_TRADE",
+                                          lp_burned_pct=0))
+
+    contract = direct_deploy(CONTRACT)
+    contract.audit_token(WIF_CA, request_id="req_unverified_no_deduct_1", payment_amount=1000)
+
+    report = contract.get_audit(WIF_CA)
+    assert set(report["unverified_fields"]) == {
+        "lp_burned_pct", "top10_holder_pct", "holder_count", "smart_money_wallets"
+    }
+    assert report["score_ceiling"] == 100   # nothing verified, so nothing deducted
+    assert report["safety_score"] == 90     # the model's judgement stands
+
+
+def test_audit_reverts_without_market_cap(direct_vm, direct_deploy, direct_alice):
+    """Without a market cap there is no verifiable scale tier, and guessing one
+    would classify a bluechip as a micro-cap or vice versa."""
+    direct_vm.sender = direct_alice
+    mock_live_sources(direct_vm, dex={
+        "pairs": [{
+            "baseToken": {"symbol": "WIF", "name": "Dogwifhat"},
+            "dexId": "raydium",
+            "priceUsd": "2.45",
+            "liquidity": {"usd": 1500000.0},   # liquidity but no fdv
+            "volume": {"h24": 5000000.0},
+            "txns": {"h24": {"buys": 1200, "sells": 800}},
+        }]
+    })
+    direct_vm.mock_llm(r".*", llm_verdict())
+
+    contract = direct_deploy(CONTRACT)
+    with pytest.raises(Exception, match="no market capitalisation"):
+        contract.audit_token(WIF_CA, request_id="req_no_fdv_1", payment_amount=1000)
+
+    assert contract.get_audit(WIF_CA)["has_audit"] is False
 
 
 def test_fetched_evidence_beats_caller_telemetry(direct_vm, direct_deploy, direct_alice):
@@ -589,25 +677,7 @@ def test_validator_consensus_agrees_on_reexecution(direct_vm, direct_deploy, dir
         "risk_factors": ["High volume volatility"],
         "ai_summary": "Dogwifhat token exhibits 100% burned liquidity and mint/freeze authority disabled.",
     }
-    dex_response = {
-        "pairs": [{
-            "baseToken": {"symbol": "WIF", "name": "Dogwifhat"},
-            "dexId": "raydium",
-            "priceUsd": "2.45",
-            "liquidity": {"usd": 1500000.0},
-            "volume": {"h24": 5000000.0},
-            "priceChange": {"h24": 12.5},
-            "txns": {"h24": {"buys": 1200, "sells": 800}},
-        }]
-    }
-    rugcheck_response = {
-        "token": {"mintAuthority": None, "freezeAuthority": None},
-        "risks": [{"name": "High volume volatility"}],
-        "score": 92,
-    }
-
-    direct_vm.mock_web(r".*dexscreener\.com.*", {"status": 200, "body": json.dumps(dex_response)})
-    direct_vm.mock_web(r".*rugcheck\.xyz.*", {"status": 200, "body": json.dumps(rugcheck_response)})
+    mock_live_sources(direct_vm)
     direct_vm.mock_llm(r".*", json.dumps(mock_llm_result))
 
     contract = direct_deploy("contracts/meme_rug_auditor.py")
@@ -640,25 +710,7 @@ def test_validator_consensus_rejects_divergent_reexecution(direct_vm, direct_dep
         "risk_factors": [],
         "ai_summary": "Clean audit.",
     }
-    dex_response = {
-        "pairs": [{
-            "baseToken": {"symbol": "WIF", "name": "Dogwifhat"},
-            "dexId": "raydium",
-            "priceUsd": "2.45",
-            "liquidity": {"usd": 1500000.0},
-            "volume": {"h24": 5000000.0},
-            "priceChange": {"h24": 12.5},
-            "txns": {"h24": {"buys": 1200, "sells": 800}},
-        }]
-    }
-    rugcheck_response = {
-        "token": {"mintAuthority": None, "freezeAuthority": None},
-        "risks": [],
-        "score": 92,
-    }
-
-    direct_vm.mock_web(r".*dexscreener\.com.*", {"status": 200, "body": json.dumps(dex_response)})
-    direct_vm.mock_web(r".*rugcheck\.xyz.*", {"status": 200, "body": json.dumps(rugcheck_response)})
+    mock_live_sources(direct_vm)
     direct_vm.mock_llm(r".*", json.dumps(leader_llm_result))
 
     contract = direct_deploy("contracts/meme_rug_auditor.py")
@@ -675,8 +727,7 @@ def test_validator_consensus_rejects_divergent_reexecution(direct_vm, direct_dep
         "freeze_disabled": False,
     })
     direct_vm.clear_mocks()
-    direct_vm.mock_web(r".*dexscreener\.com.*", {"status": 200, "body": json.dumps(dex_response)})
-    direct_vm.mock_web(r".*rugcheck\.xyz.*", {"status": 200, "body": json.dumps(rugcheck_response)})
+    mock_live_sources(direct_vm)
     direct_vm.mock_llm(r".*", json.dumps(divergent_llm_result))
 
     disagreed = direct_vm.run_validator()
