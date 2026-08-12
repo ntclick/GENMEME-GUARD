@@ -77,6 +77,18 @@ Return strictly a single valid JSON object matching this exact schema — no mar
 """
 
 SCORE_TOLERANCE = 10
+# score_ceiling is a quantity in the same 0-100 space as the score, derived from
+# the tier plus verified deductions, so it is held to the same tolerance.
+CEILING_TOLERANCE = 10
+# Percentage-point drift allowed between two nodes reading the same source
+# seconds apart. Wide enough for a live figure to move, far too narrow to hide
+# the difference between a burned LP and an unburned one.
+PCT_TOLERANCE = 2
+# Wallet counts move as people trade, so they are compared proportionally, with
+# an absolute floor so tokens with tiny counts are not held to a stricter bar
+# than large ones.
+COUNT_REL_TOLERANCE = 0.05
+COUNT_ABS_TOLERANCE = 2
 ALLOWED_VERDICTS = {"SAFE_TO_TRADE", "HIGH_VOLATILITY_WARN", "CRITICAL_RUG_RISK"}
 MIN_AUDIT_FEE = u256(1000)
 
@@ -118,23 +130,67 @@ def _safe_int(val, default=0) -> int:
         return default
 
 
+def _within_abs(a, b, tol: int) -> bool:
+    return abs(_safe_int(a) - _safe_int(b)) <= tol
+
+
+def _within_rel(a, b, rel: float, floor: int) -> bool:
+    x = _safe_int(a)
+    y = _safe_int(b)
+    return abs(x - y) <= max(floor, int(max(abs(x), abs(y)) * rel))
+
+
 def _check_equivalence(res1: dict, res2: dict) -> bool:
+    """Compare two nodes' independent audits across every material fact.
+
+    "Material" is defined by what leaves this function's blast radius: each
+    field below is written to AuditRecord and rendered in the dApp, so a
+    disagreement on any of them is a disagreement about what the user is shown.
+    Checking only score, verdict and the authority flags left the rest —
+    distribution metrics, the scale tier, the ceiling, and which figures nobody
+    could verify — outside consensus entirely, so a leader could have stored
+    whatever it liked there and no validator would have objected.
+
+    Tolerances differ by what the field is. Categorical findings must match
+    outright; live figures get room for the seconds between two nodes' fetches;
+    the model's own score keeps its existing 10-point band. risk_factors and
+    ai_summary are deliberately excluded — they are model prose, and no two
+    independent LLM rounds produce identical sentences. Equivalence here means
+    the nodes agree on the facts, not that they phrased them the same way.
+    """
     if not isinstance(res1, dict) or not isinstance(res2, dict):
         return False
-    # Two nodes that did not reach their verdicts the same way are not
-    # equivalent even when the numbers happen to line up.
-    if res1.get("analysis_source") != res2.get("analysis_source"):
+
+    # Provenance and categorical findings: exact agreement or nothing. Two nodes
+    # that did not reach their verdicts the same way are not equivalent even
+    # when the numbers happen to line up.
+    for key in ("analysis_source", "verdict", "scale_tier", "token_symbol"):
+        if res1.get(key) != res2.get(key):
+            return False
+    if res1.get("verdict") not in ALLOWED_VERDICTS:
         return False
-    score1 = _safe_int(res1.get("safety_score"))
-    score2 = _safe_int(res2.get("safety_score"))
-    if abs(score1 - score2) > SCORE_TOLERANCE:
+    for key in ("mint_disabled", "freeze_disabled"):
+        if bool(res1.get(key)) != bool(res2.get(key)):
+            return False
+
+    # Which metrics no source could back is itself a stored, displayed fact: it
+    # is what tells a reader whether a 0 was measured or merely unknown. Two
+    # nodes that disagree about what they could verify have not agreed.
+    if sorted(str(f) for f in (res1.get("unverified_fields") or [])) != sorted(
+        str(f) for f in (res2.get("unverified_fields") or [])
+    ):
         return False
-    if res1.get("verdict") != res2.get("verdict"):
+
+    if not _within_abs(res1.get("safety_score"), res2.get("safety_score"), SCORE_TOLERANCE):
         return False
-    if bool(res1.get("mint_disabled")) != bool(res2.get("mint_disabled")):
+    if not _within_abs(res1.get("score_ceiling"), res2.get("score_ceiling"), CEILING_TOLERANCE):
         return False
-    if bool(res1.get("freeze_disabled")) != bool(res2.get("freeze_disabled")):
-        return False
+    for key in ("lp_burned_pct", "top10_holder_pct"):
+        if not _within_abs(res1.get(key), res2.get(key), PCT_TOLERANCE):
+            return False
+    for key in ("holder_count", "smart_money_wallets"):
+        if not _within_rel(res1.get(key), res2.get(key), COUNT_REL_TOLERANCE, COUNT_ABS_TOLERANCE):
+            return False
     return True
 
 
@@ -426,6 +482,17 @@ class MemeRugAuditor(gl.Contract):
         available, or the LLM consensus round cannot produce a verdict that
         passes validation, the transaction reverts and no report is stored —
         there is no local scoring path that could stand in for the model.
+
+        telemetry_json is accepted for call compatibility and deliberately
+        ignored. It used to fill gaps when DEXScreener or RugCheck answered
+        incompletely, which quietly turned an untrusted caller into a source of
+        decision evidence: authority flags force the verdict, and market cap and
+        liquidity set the score ceiling. Validator agreement did not catch it,
+        because every node reads the same payload out of the same calldata and
+        so agrees on it perfectly — consensus on a caller's assertion, not on a
+        fact. Every figure that moves the outcome is now fetched independently
+        by each node, and an audit whose sources came back incomplete reverts
+        instead of borrowing the caller's version of events.
         """
         caller = gl.message.sender_address
 
@@ -450,60 +517,15 @@ class MemeRugAuditor(gl.Contract):
                 raise gl.vm.UserError("Replay attack detected: Request ID already processed.")
 
         def leader_fn() -> dict:
-            # 1. Parse client-provided live telemetry payload if available
+            # Every figure below is fetched by this node. telemetry_json is not
+            # read at all — see the audit_token docstring for why a caller
+            # payload cannot be evidence even when validators agree on it.
             dex_metrics = {}
-            tele_security = {}
-            if telemetry_json and len(str(telemetry_json).strip()) > 2:
-                try:
-                    parsed_tele = json.loads(str(telemetry_json).strip())
-                    if isinstance(parsed_tele, dict):
-                        buys = _safe_int(parsed_tele.get("txns_24h_buys"))
-                        sells = _safe_int(parsed_tele.get("txns_24h_sells"))
-                        sentiment = "BUY_ACCUMULATION" if buys > sells * 1.15 else ("WHALE_SELLING_PRESSURE" if sells > buys * 1.15 else "NEUTRAL")
-                        liq_usd = _safe_float(parsed_tele.get("liquidity_usd"))
-                        vol_usd = _safe_float(parsed_tele.get("volume_24h_usd"))
-                        
-                        dex_metrics = {
-                            "token_symbol": str(parsed_tele.get("token_symbol") or "UNKNOWN"),
-                            "token_name": str(parsed_tele.get("token_name") or "UNKNOWN"),
-                            "price_usd": str(parsed_tele.get("price_usd") or "0"),
-                            "fdv_usd": _safe_float(parsed_tele.get("fdv_usd")),
-                            "liquidity_usd": liq_usd,
-                            "volume_24h_usd": vol_usd,
-                            "price_change_24h_pct": _safe_float(parsed_tele.get("price_change_24h_pct")),
-                            "txns_24h_buys": buys,
-                            "txns_24h_sells": sells,
-                            "smart_money_sentiment": sentiment,
-                            "volume_to_liquidity_ratio": round(vol_usd / max(liq_usd, 1.0), 2)
-                        }
 
-                        # Only carry over metrics the caller actually supplied.
-                        # Defaulting a missing authority flag to "disabled" would
-                        # invent a clean bill of health out of absent evidence.
-                        tele_security = {}
-                        if "mint_disabled" in parsed_tele and parsed_tele.get("mint_disabled") is not None:
-                            tele_security["mint_authority_disabled"] = bool(parsed_tele.get("mint_disabled"))
-                        if "freeze_disabled" in parsed_tele and parsed_tele.get("freeze_disabled") is not None:
-                            tele_security["freeze_authority_disabled"] = bool(parsed_tele.get("freeze_disabled"))
-                        for tele_key, sec_key in (
-                            ("lp_burned_pct", "lp_burned_pct"),
-                            ("top10_holder_pct", "top10_holder_pct"),
-                            ("holder_count", "holder_count"),
-                            ("smart_money_wallets", "smart_money_wallets"),
-                        ):
-                            if tele_key in parsed_tele and parsed_tele.get(tele_key) is not None:
-                                tele_security[sec_key] = _safe_int(parsed_tele.get(tele_key))
-                        if isinstance(parsed_tele.get("detected_risks"), list):
-                            tele_security["detected_risks"] = parsed_tele.get("detected_risks")
-                except Exception:
-                    pass
-
-            # 2. Fetch market metrics from DEXScreener. This runs on every audit,
-            # not only when the caller left gaps: market cap and liquidity decide
-            # the scale-tier score ceiling below, so letting an untrusted payload
-            # supply them unchallenged would let a caller buy a Tier 4 ceiling for
-            # a micro-cap by simply asserting the numbers. Whatever this fetch
-            # returns replaces the payload; the payload only stands if it fails.
+            # 1. Fetch market metrics from DEXScreener. Market cap and liquidity
+            # decide the scale-tier score ceiling, so these have to come from a
+            # source the caller does not control: asserting the numbers would
+            # otherwise buy a Tier 4 ceiling for a micro-cap.
             dex_url = f"https://api.dexscreener.com/latest/dex/tokens/{token_address}"
             try:
                 headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
@@ -628,24 +650,19 @@ class MemeRugAuditor(gl.Contract):
                 .replace("{tech_data}", tech_summary_json)
             )
 
-            # Authority status is hard evidence, not model opinion.
-            # Order matters: the caller's telemetry is applied first so that
-            # anything this contract fetched for itself overwrites it. The
-            # payload arrives from an untrusted caller who could assert a fully
-            # burned LP and revoked authorities for a token that has neither, so
-            # it only stands where RugCheck gave us nothing to check it against.
+            # Authority status is hard evidence, not model opinion. Everything
+            # here comes from this node's own RugCheck fetch — there is no
+            # second source to fall back to, by design.
             ground_truth = {}
-            for src in (tele_security, security_metrics):
-                if isinstance(src, dict):
-                    for evidence_key in ("mint_authority_disabled", "freeze_authority_disabled",
-                                         "lp_burned_pct", "top10_holder_pct",
-                                         "holder_count", "smart_money_wallets"):
-                        if evidence_key in src and src[evidence_key] is not None:
-                            ground_truth[evidence_key] = src[evidence_key]
+            if isinstance(security_metrics, dict):
+                for evidence_key in ("mint_authority_disabled", "freeze_authority_disabled",
+                                     "lp_burned_pct", "top10_holder_pct",
+                                     "holder_count", "smart_money_wallets"):
+                    if evidence_key in security_metrics and security_metrics[evidence_key] is not None:
+                        ground_truth[evidence_key] = security_metrics[evidence_key]
 
-            # Market size decides the scale-tier ceiling. dex_metrics is the
-            # DEXScreener fetch above wherever it succeeded, falling back to the
-            # payload only when it did not.
+            # Market size decides the scale-tier ceiling, read from this node's
+            # own DEXScreener fetch.
             ground_truth["fdv_usd"] = _safe_float(dex_metrics.get("fdv_usd"))
             ground_truth["liquidity_usd"] = _safe_float(dex_metrics.get("liquidity_usd"))
 
@@ -656,7 +673,7 @@ class MemeRugAuditor(gl.Contract):
             if "mint_authority_disabled" not in ground_truth or "freeze_authority_disabled" not in ground_truth:
                 raise gl.vm.UserError(
                     "EXTERNAL: mint/freeze authority status unavailable from RugCheck "
-                    "and caller telemetry — refusing to audit without on-chain evidence."
+                    "— refusing to audit without on-chain evidence."
                 )
             # Both figures are required, not just liquidity: they decide the
             # scale-tier ceiling, and a missing market cap would otherwise be
@@ -665,12 +682,12 @@ class MemeRugAuditor(gl.Contract):
             if not dex_metrics or _safe_float(dex_metrics.get("liquidity_usd")) <= 0.0:
                 raise gl.vm.UserError(
                     "EXTERNAL: no live market data for this mint from DEXScreener "
-                    "or caller telemetry — refusing to audit without real liquidity."
+                    "— refusing to audit without real liquidity."
                 )
             if _safe_float(dex_metrics.get("fdv_usd")) <= 0.0:
                 raise gl.vm.UserError(
                     "EXTERNAL: no market capitalisation for this mint from DEXScreener "
-                    "or caller telemetry — refusing to audit without a verifiable scale tier."
+                    "— refusing to audit without a verifiable scale tier."
                 )
 
             # Non-deterministic LLM round. This is the only source of a verdict:

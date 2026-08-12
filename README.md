@@ -95,10 +95,42 @@ on the contract above, read back from `sim_getTransactionsForAddress`:
 
 The `disagree` vote is the point worth reading: validators are not rubber-stamping
 a leader receipt. Each one independently re-executes the DEXScreener fetch, the
-RugCheck fetch and the LLM audit inside `validator_fn`, then compares the
-substantive findings — `safety_score` (±10 tolerance), `verdict`, `mint_disabled`
-and `freeze_disabled` — through `_check_equivalence`. A node whose own round
-lands outside that envelope votes against, exactly as one did here.
+RugCheck fetch and the LLM audit inside `validator_fn`, then compares the result
+through `_check_equivalence`. A node whose own round lands outside that envelope
+votes against, exactly as one did here.
+
+### What equivalence covers
+
+Every field written to `AuditRecord` and rendered in the dApp is compared. The
+tolerance depends on what the field is:
+
+| Field | Agreement required |
+| :--- | :--- |
+| `verdict`, `mint_disabled`, `freeze_disabled` | exact |
+| `scale_tier`, `token_symbol`, `analysis_source` | exact |
+| `unverified_fields` | exact, order-insensitive |
+| `safety_score`, `score_ceiling` | within 10 points |
+| `lp_burned_pct`, `top10_holder_pct` | within 2 percentage points |
+| `holder_count`, `smart_money_wallets` | within 5% |
+| `risk_factors`, `ai_summary` | **excluded** — model prose |
+
+Prose is excluded deliberately: no two independent LLM rounds write identical
+sentences, so requiring that would make consensus unreachable rather than
+stricter. Equivalence here means the nodes agree on the facts, not the wording.
+
+### No caller-supplied evidence
+
+`audit_token` accepts a `telemetry_json` argument and ignores it. It previously
+filled gaps when DEXScreener or RugCheck answered incompletely, which turned an
+untrusted caller into a source of decision evidence — authority flags force the
+verdict, and market cap and liquidity set the score ceiling. Validator agreement
+did not catch this: every node reads the same payload from the same calldata and
+so agrees on it perfectly, producing consensus on a caller's assertion rather
+than on a fact.
+
+Every figure that moves the outcome is now fetched independently by each node.
+An audit whose sources came back incomplete reverts rather than borrowing the
+caller's version of events.
 
 ---
 
@@ -110,8 +142,10 @@ lands outside that envelope votes against, exactly as one did here.
 | **2. Uses Live Authoritative Data** | Aggregates live DEXScreener market figures (Price, Volume 24h, Liquidity USD, Buy/Sell txns) & RugCheck/Birdeye security metrics (Mint/Freeze revocation, LP Burn %, Holder Count, Smart Money Wallets Count) directly from browser to contract payload. | ✅ PASSED |
 | **3. Complete Source Code & Docs** | 100% complete Python Intelligent Contract ([`contracts/meme_rug_auditor.py`](file:///f:/Work/Cryoto/Gen%20layer/gen2/contracts/meme_rug_auditor.py)), PyTest test suite ([`tests/test_meme_rug_auditor.py`](file:///f:/Work/Cryoto/Gen%20layer/gen2/tests/test_meme_rug_auditor.py)), and Cyberpunk React Web3 Frontend ([`frontend/src/App.jsx`](file:///f:/Work/Cryoto/Gen%20layer/gen2/frontend/src/App.jsx)). | ✅ PASSED |
 | **4. Frontend Handles Full Transaction Lifecycle** | React frontend connects to MetaMask, auto-switches to GenLayer StudioNet (Chain ID: 61999), sends 1,000 Wei fee transaction to `audit_token(...)`, handles mining spinner, and reads finalized on-chain state via `get_audit(...)`. | ✅ PASSED |
-| **5. Meaningfully Different from Boilerplate** | Introduces novel **Scale-Tier Hard Ceilings** (capping micro-caps at 55/100 max), **Buy/Sell Pressure Inflow Index**, and **Equivalence Consensus** logic with 28/28 passing pytest unit tests. | ✅ PASSED |
-| **6. Real Validator Consensus, Not a Shape Check** | The web fetch and LLM round run inside `gl.vm.run_nondet_unsafe(leader_fn, validator_fn)`. Every validator re-executes `leader_fn()` itself and gates the result through `_check_equivalence` on score, verdict and both authority flags before anything is stored; a failed round reverts rather than storing a report. Covered by `test_validator_consensus_agrees_on_reexecution` and `test_validator_consensus_rejects_divergent_reexecution`, and evidenced on-chain by the 3-agree/1-disagree vote above. | ✅ PASSED |
+| **5. Meaningfully Different from Boilerplate** | Introduces novel **Scale-Tier Hard Ceilings** (capping micro-caps at 55/100 max), **Buy/Sell Pressure Inflow Index**, and **Equivalence Consensus** logic with 42/42 passing pytest unit tests. | ✅ PASSED |
+| **6. Real Validator Consensus, Not a Shape Check** | The web fetch and LLM round run inside `gl.vm.run_nondet_unsafe(leader_fn, validator_fn)`. Every validator re-executes `leader_fn()` itself and gates the result through `_check_equivalence` before anything is stored; a failed round reverts rather than storing a report. Covered by `test_validator_consensus_agrees_on_reexecution` and `test_validator_consensus_rejects_divergent_reexecution`, and evidenced on-chain by the 3-agree/1-disagree vote above. | ✅ PASSED |
+| **7. Consensus Covers Every Displayed Fact** | Equivalence spans all of `AuditRecord`, not just score and verdict: distribution metrics, scale tier, score ceiling and `unverified_fields` are compared too, so no field reaches the user outside consensus. `test_equivalence_rejects_material_divergence` parametrises one case per field, and `test_validator_rejects_divergent_distribution_metrics` proves it end to end on a divergence the narrower check would have accepted. | ✅ PASSED |
+| **8. No Caller-Supplied Decision Evidence** | `telemetry_json` is ignored. Every figure that moves the outcome — authority flags, market cap, liquidity, distribution metrics — is fetched independently by each validator, and incomplete sources revert the audit. `test_caller_telemetry_is_never_evidence`, `test_telemetry_cannot_supply_missing_authority` and `test_telemetry_cannot_supply_missing_market_size` cover it. | ✅ PASSED |
 
 ---
 

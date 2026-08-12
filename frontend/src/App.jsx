@@ -672,36 +672,20 @@ export default function App() {
 
     try {
       await ensureGenLayerNetwork();
-      const currentPair = await fetchDexData(tokenAddress);
-      const currentSecurity = await fetchSecurityData(tokenAddress);
+      // Refresh the panels on this page. Their return values are deliberately
+      // unused: they inform the reader, not the audit.
+      await fetchDexData(tokenAddress);
+      await fetchSecurityData(tokenAddress);
       let txHash = null;
       const uniqueRequestId = `req_${(senderAddr || 'anon').slice(-6)}_${tokenAddress.slice(0, 6)}_${Date.now()}`;
 
-      // Forward only what the live sources actually returned. The contract
-      // fails closed on missing evidence, so inventing defaults here would
-      // just smuggle guesses past that check.
-      const telemetry = {
-        token_symbol: currentPair?.baseToken?.symbol || activePreset || 'TOKEN',
-        token_name: currentPair?.baseToken?.name || '',
-        price_usd: currentPair?.priceUsd || '0',
-        market_cap_usd: currentPair?.fdv || currentPair?.marketCap || 0,
-        liquidity_usd: currentPair?.liquidity?.usd || 0,
-        volume_24h_usd: currentPair?.volume?.h24 || 0,
-        fdv_usd: currentPair?.fdv || currentPair?.marketCap || 0,
-        price_change_24h_pct: currentPair?.priceChange?.h24 || 0,
-        txns_24h_buys: currentPair?.txns?.h24?.buys || 0,
-        txns_24h_sells: currentPair?.txns?.h24?.sells || 0,
-        detected_risks: currentSecurity?.detected_risks || []
-      };
-
-      for (const field of ['mint_disabled', 'freeze_disabled', 'lp_burned_pct',
-                           'top10_holder_pct', 'holder_count', 'smart_money_wallets']) {
-        if (currentSecurity && currentSecurity[field] !== undefined) {
-          telemetry[field] = currentSecurity[field];
-        }
-      }
-
-      const telemetryPayload = JSON.stringify(telemetry);
+      // No telemetry is sent. The browser's own DEXScreener and RugCheck reads
+      // above drive the panels on this page and nothing else: the contract
+      // fetches its evidence on every validator node and ignores this argument
+      // outright. Passing a payload would only look like it counted for
+      // something — a page that quietly fed the audit its own numbers would be
+      // the caller deciding its own verdict.
+      const telemetryPayload = '';
 
       if (typeof window.ethereum !== 'undefined' && senderAddr) {
         setAuditStatusText(`Confirm the GenLayer call in your MetaMask popup (StudioNet is gasless)...`);

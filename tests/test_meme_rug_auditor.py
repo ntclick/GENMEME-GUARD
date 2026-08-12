@@ -26,6 +26,25 @@ RUGCHECK_RESPONSE = {
     "score": 92,
 }
 
+# The same source answering completely: authorities plus every distribution
+# metric. Tests that care about the model's verdict surviving intact use this,
+# so nothing lands in unverified_fields and neither the LP-burn reclaim nor a
+# ceiling deduction moves the score out from under the assertion.
+RUGCHECK_FULL_RESPONSE = {
+    "token": {"mintAuthority": None, "freezeAuthority": None},
+    "risks": [{"name": "High volume volatility"}],
+    "score": 92,
+    "markets": [{"lp": {"lpBurnedPct": 100}}],
+    "topHoldersPct": 18,
+    "totalHolders": 185400,
+    "topHolders": [
+        {"pct": 1.5, "insider": False},
+        {"pct": 2.0, "insider": False},
+        {"pct": 3.2, "insider": False},
+        {"pct": 1.1, "insider": False},
+    ],
+}
+
 
 def mock_live_sources(vm, dex=None, rugcheck=None):
     """Register the DEXScreener and RugCheck responses the contract fetches."""
@@ -127,6 +146,95 @@ def test_equivalence_mint_disabled_mismatch(direct_deploy):
         "freeze_disabled": True,
     }
     assert _check_equivalence(res1, res2) is False
+
+
+def equiv_result(**overrides):
+    """A complete audit result as leader_fn returns it, tweakable per test.
+
+    Every field here is stored in AuditRecord and rendered in the dApp, which is
+    the definition of material used by _check_equivalence.
+    """
+    result = {
+        "analysis_source": "llm_consensus",
+        "token_symbol": "WIF",
+        "safety_score": 85,
+        "verdict": "SAFE_TO_TRADE",
+        "mint_disabled": True,
+        "freeze_disabled": True,
+        "lp_burned_pct": 100,
+        "top10_holder_pct": 18,
+        "holder_count": 185400,
+        "smart_money_wallets": 42,
+        "unverified_fields": [],
+        "scale_tier": "Tier 4 Institutional Bluechip",
+        "score_ceiling": 100,
+        "risk_factors": ["High volume volatility"],
+        "ai_summary": "Leader phrasing.",
+    }
+    result.update(overrides)
+    return result
+
+
+def test_equivalence_covers_full_result(direct_deploy):
+    """Two nodes reporting the same facts agree, even though their prose differs
+    — no two LLM rounds write identical sentences, and requiring that would make
+    consensus unreachable rather than stricter."""
+    _check_equivalence = get_check_equivalence(direct_deploy)
+    leader = equiv_result()
+    validator = equiv_result(
+        safety_score=91,                        # within the 10-point band
+        risk_factors=["Volatility, worded differently"],
+        ai_summary="Validator phrasing, same findings.",
+    )
+    assert _check_equivalence(leader, validator) is True
+
+
+def test_equivalence_tolerates_live_metric_drift(direct_deploy):
+    """Nodes fetch seconds apart, so figures move a little. Small drift is not
+    disagreement."""
+    _check_equivalence = get_check_equivalence(direct_deploy)
+    leader = equiv_result()
+    validator = equiv_result(
+        top10_holder_pct=19,          # 1 point, within PCT_TOLERANCE
+        holder_count=189000,          # ~1.9%, within COUNT_REL_TOLERANCE
+        smart_money_wallets=43,
+    )
+    assert _check_equivalence(leader, validator) is True
+
+
+@pytest.mark.parametrize("field,value", [
+    ("lp_burned_pct", 0),             # 100 vs 0: burned or not is not a rounding matter
+    ("top10_holder_pct", 44),         # crosses the concentration deduction line
+    ("holder_count", 400),            # nowhere near a 5% drift
+    ("smart_money_wallets", 2),       # crosses the retail-trap line
+    ("scale_tier", "Tier 1 Micro-Cap"),
+    ("score_ceiling", 55),
+    ("token_symbol", "NOTWIF"),
+])
+def test_equivalence_rejects_material_divergence(direct_deploy, field, value):
+    """Each of these is stored and displayed, so a node disagreeing about one is
+    disagreeing about what the user is shown. None of them were checked before:
+    a leader could report any value here and no validator would object."""
+    _check_equivalence = get_check_equivalence(direct_deploy)
+    assert _check_equivalence(equiv_result(), equiv_result(**{field: value})) is False
+
+
+def test_equivalence_rejects_unverified_field_mismatch(direct_deploy):
+    """unverified_fields is what tells a reader whether a stored 0 was measured
+    or merely unknown. Two nodes that disagree about what they could verify have
+    not reached the same audit, even when every number matches."""
+    _check_equivalence = get_check_equivalence(direct_deploy)
+    leader = equiv_result(lp_burned_pct=0, unverified_fields=["lp_burned_pct"])
+    validator = equiv_result(lp_burned_pct=0, unverified_fields=[])
+    assert _check_equivalence(leader, validator) is False
+
+
+def test_equivalence_ignores_unverified_field_ordering(direct_deploy):
+    """Order is an artifact of iteration, not a finding."""
+    _check_equivalence = get_check_equivalence(direct_deploy)
+    leader = equiv_result(unverified_fields=["lp_burned_pct", "holder_count"])
+    validator = equiv_result(unverified_fields=["holder_count", "lp_burned_pct"])
+    assert _check_equivalence(leader, validator) is True
 
 
 def test_meme_rug_auditor_init(direct_vm, direct_deploy, direct_alice):
@@ -273,12 +381,13 @@ BLUECHIP_TELEMETRY = json.dumps({
 def test_llm_verdict_drives_stored_report(direct_vm, direct_deploy, direct_alice):
     """The on-chain LLM round decides the stored report.
 
-    Bluechip telemetry with revoked authorities and $15M liquidity is about as
+    Fetched evidence with revoked authorities and $1.5M liquidity is about as
     strong as this rubric gets, yet the model returns 63/HIGH_VOLATILITY_WARN
     and that is exactly what lands on chain — the number and the wording both
     come from the model, not from anything the contract could have computed.
     """
     direct_vm.sender = direct_alice
+    mock_live_sources(direct_vm, rugcheck=RUGCHECK_FULL_RESPONSE)
     direct_vm.mock_llm(r".*", llm_verdict(
         safety_score=63,
         verdict="HIGH_VOLATILITY_WARN",
@@ -287,8 +396,7 @@ def test_llm_verdict_drives_stored_report(direct_vm, direct_deploy, direct_alice
     ))
 
     contract = direct_deploy(CONTRACT)
-    contract.audit_token(WIF_CA, request_id="req_llm_drives_1", payment_amount=1000,
-                         telemetry_json=BLUECHIP_TELEMETRY)
+    contract.audit_token(WIF_CA, request_id="req_llm_drives_1", payment_amount=1000)
 
     report = contract.get_audit(WIF_CA)
     assert report["analysis_source"] == "llm_consensus"
@@ -443,9 +551,17 @@ def test_audit_reverts_without_market_cap(direct_vm, direct_deploy, direct_alice
     assert contract.get_audit(WIF_CA)["has_audit"] is False
 
 
-def test_fetched_evidence_beats_caller_telemetry(direct_vm, direct_deploy, direct_alice):
-    """telemetry_json comes from an untrusted caller. Where RugCheck answers,
-    its figures win, so a caller cannot talk a token into looking safe."""
+def test_caller_telemetry_is_never_evidence(direct_vm, direct_deploy, direct_alice):
+    """telemetry_json carries no evidentiary weight, even where it is the only
+    thing offering a figure.
+
+    A caller who could fill gaps left by an incomplete upstream response would
+    be deciding the audit: authority flags force the verdict and market size
+    sets the ceiling. Validator agreement would not catch it either, since every
+    node reads the same payload from the same calldata and agrees on it
+    perfectly. Here RugCheck reports a live mint authority and 12% LP burn while
+    the payload asserts the flattering opposite, and the payload changes
+    nothing."""
     direct_vm.sender = direct_alice
     mock_live_sources(direct_vm, rugcheck={
         "token": {"mintAuthority": "SomeMintAuthorityPubkey", "freezeAuthority": None},
@@ -471,10 +587,59 @@ def test_fetched_evidence_beats_caller_telemetry(direct_vm, direct_deploy, direc
                          telemetry_json=lying_telemetry)
 
     report = contract.get_audit(WIF_CA)
-    assert report["mint_disabled"] is False          # RugCheck won
-    assert report["lp_burned_pct"] == 12             # RugCheck won, not the claimed 100
+    assert report["mint_disabled"] is False          # fetched evidence, not the payload
+    assert report["lp_burned_pct"] == 12             # RugCheck's 12%, not the claimed 100
     assert report["verdict"] == "CRITICAL_RUG_RISK"  # forced by the live authority
     assert report["safety_score"] <= 49
+
+
+def test_telemetry_cannot_supply_missing_authority(direct_vm, direct_deploy, direct_alice):
+    """The gap-filling case specifically: RugCheck answers with nothing, and a
+    payload asserting revoked authorities does not rescue the audit. Before,
+    this stored a clean bill of health sourced entirely from the caller."""
+    direct_vm.sender = direct_alice
+    mock_live_sources(direct_vm, rugcheck={})     # upstream returns no authority data
+    direct_vm.mock_llm(r".*", llm_verdict())
+
+    generous_telemetry = json.dumps({
+        "token_symbol": "WIF",
+        "mint_disabled": True,
+        "freeze_disabled": True,
+        "lp_burned_pct": 100,
+        "holder_count": 185400,
+        "smart_money_wallets": 42,
+    })
+
+    contract = direct_deploy(CONTRACT)
+    with pytest.raises(Exception, match="authority status unavailable"):
+        contract.audit_token(WIF_CA, request_id="req_tele_gapfill_1", payment_amount=1000,
+                             telemetry_json=generous_telemetry)
+
+    assert contract.get_audit(WIF_CA)["has_audit"] is False
+
+
+def test_telemetry_cannot_supply_missing_market_size(direct_vm, direct_deploy, direct_alice):
+    """Market cap and liquidity set the scale-tier ceiling, so a payload that
+    supplies them would be buying its own ceiling. DEXScreener returning no
+    pairs reverts regardless of what the caller claims the token is worth."""
+    direct_vm.sender = direct_alice
+    mock_live_sources(direct_vm, dex={"pairs": []})
+    direct_vm.mock_llm(r".*", llm_verdict())
+
+    bluechip_claim = json.dumps({
+        "token_symbol": "WIF",
+        "fdv_usd": 2450000000.0,      # would buy a Tier 4 ceiling of 100
+        "liquidity_usd": 15420000.0,
+        "mint_disabled": True,
+        "freeze_disabled": True,
+    })
+
+    contract = direct_deploy(CONTRACT)
+    with pytest.raises(Exception, match="no live market data"):
+        contract.audit_token(WIF_CA, request_id="req_tele_market_1", payment_amount=1000,
+                             telemetry_json=bluechip_claim)
+
+    assert contract.get_audit(WIF_CA)["has_audit"] is False
 
 
 def test_unbacked_lp_burn_claim_is_stripped(direct_vm, direct_deploy, direct_alice):
@@ -522,11 +687,11 @@ def test_audit_reverts_when_llm_round_unavailable(direct_vm, direct_deploy, dire
     """No model, no report. There is no local scoring path to fall back on, so
     the transaction reverts rather than storing a fabricated audit."""
     direct_vm.sender = direct_alice
+    mock_live_sources(direct_vm)          # market and authority evidence are fine
     contract = direct_deploy(CONTRACT)
 
     with pytest.raises(Exception, match="LLM consensus round unavailable"):
-        contract.audit_token(WIF_CA, request_id="req_llm_missing_1", payment_amount=1000,
-                             telemetry_json=BLUECHIP_TELEMETRY)
+        contract.audit_token(WIF_CA, request_id="req_llm_missing_1", payment_amount=1000)
 
     assert contract.get_audit(WIF_CA)["has_audit"] is False
 
@@ -535,6 +700,7 @@ def test_audit_reverts_on_malformed_llm_response(direct_vm, direct_deploy, direc
     """A reply that breaks the schema or leaves the valid range is untrusted,
     and an untrusted reply aborts the audit instead of being stored."""
     direct_vm.sender = direct_alice
+    mock_live_sources(direct_vm)
     direct_vm.mock_llm(r".*", json.dumps({
         "token_symbol": "WIF",
         "safety_score": 420,               # out of the 0-100 range
@@ -544,8 +710,7 @@ def test_audit_reverts_on_malformed_llm_response(direct_vm, direct_deploy, direc
 
     contract = direct_deploy(CONTRACT)
     with pytest.raises(Exception, match="LLM_ERROR"):
-        contract.audit_token(WIF_CA, request_id="req_llm_malformed_1", payment_amount=1000,
-                             telemetry_json=BLUECHIP_TELEMETRY)
+        contract.audit_token(WIF_CA, request_id="req_llm_malformed_1", payment_amount=1000)
 
     assert contract.get_audit(WIF_CA)["has_audit"] is False
 
@@ -560,14 +725,14 @@ def test_distinct_tokens_store_distinct_verdicts(direct_vm, direct_deploy, direc
     """Each token carries through its own model verdict rather than collapsing
     onto one canned result."""
     direct_vm.sender = direct_alice
+    mock_live_sources(direct_vm, rugcheck=RUGCHECK_FULL_RESPONSE)
     direct_vm.mock_llm(r".*", llm_verdict(
         token_symbol=symbol, safety_score=score, verdict=verdict,
         ai_summary=f"{symbol} brief at {score}/100.",
     ))
 
     contract = direct_deploy(CONTRACT)
-    contract.audit_token(WIF_CA, request_id=f"req_tier_{symbol}", payment_amount=1000,
-                         telemetry_json=BLUECHIP_TELEMETRY)
+    contract.audit_token(WIF_CA, request_id=f"req_tier_{symbol}", payment_amount=1000)
 
     report = contract.get_audit(WIF_CA)
     assert report["token_symbol"] == symbol
@@ -584,19 +749,8 @@ def test_audit_reverts_without_authority_evidence(direct_vm, direct_deploy, dire
     direct_vm.mock_llm(r".*", llm_verdict())
 
     contract = direct_deploy(CONTRACT)
-    market_only_telemetry = json.dumps({
-        "token_symbol": "WIF",
-        "fdv_usd": 2450000000.0,
-        "liquidity_usd": 15420000.0,
-        "volume_24h_usd": 185000000.0,
-        "txns_24h_buys": 14200,
-        "txns_24h_sells": 11800,
-        # deliberately no mint_disabled / freeze_disabled
-    })
-
     with pytest.raises(Exception, match="authority status unavailable"):
-        contract.audit_token(WIF_CA, request_id="req_no_authority_1", payment_amount=1000,
-                             telemetry_json=market_only_telemetry)
+        contract.audit_token(WIF_CA, request_id="req_no_authority_1", payment_amount=1000)
 
     assert contract.get_audit(WIF_CA)["has_audit"] is False
 
@@ -623,7 +777,7 @@ def test_llm_cannot_override_authority_findings(direct_vm, direct_deploy, direct
         "token_symbol": "WIF",
         "safety_score": 95,
         "verdict": "SAFE_TO_TRADE",
-        "mint_disabled": True,      # model contradicts the telemetry below
+        "mint_disabled": True,      # model contradicts the fetched evidence below
         "freeze_disabled": True,
         "lp_burned_pct": 100,
         "top10_holder_pct": 18,
@@ -631,25 +785,15 @@ def test_llm_cannot_override_authority_findings(direct_vm, direct_deploy, direct
         "ai_summary": "Model brief claiming a clean bill of health.",
     }))
 
-    hostile_telemetry = json.dumps({
-        "token_symbol": "WIF",
-        "fdv_usd": 2450000000.0,
-        "liquidity_usd": 15420000.0,
-        "volume_24h_usd": 185000000.0,
-        "txns_24h_buys": 14200,
-        "txns_24h_sells": 11800,
-        "holder_count": 185400,
-        "smart_money_wallets": 42,
-        "top10_holder_pct": 18,
-        "mint_disabled": False,     # live mint authority — hard on-chain fact
-        "freeze_disabled": True,
-        "lp_burned_pct": 100,
-        "detected_risks": []
+    # The live mint authority is a hard on-chain fact, read from RugCheck.
+    mock_live_sources(direct_vm, rugcheck={
+        "token": {"mintAuthority": "SomeMintAuthorityPubkey", "freezeAuthority": None},
+        "risks": [],
+        "score": 30,
     })
 
     contract = direct_deploy("contracts/meme_rug_auditor.py")
-    contract.audit_token(WIF_CA, request_id="req_authority_override_1", payment_amount=1000,
-                         telemetry_json=hostile_telemetry)
+    contract.audit_token(WIF_CA, request_id="req_authority_override_1", payment_amount=1000)
 
     report = contract.get_audit(WIF_CA)
     assert report["analysis_source"] == "llm_consensus"
@@ -732,3 +876,38 @@ def test_validator_consensus_rejects_divergent_reexecution(direct_vm, direct_dep
 
     disagreed = direct_vm.run_validator()
     assert disagreed is False
+
+
+def test_validator_rejects_divergent_distribution_metrics(direct_vm, direct_deploy, direct_alice):
+    """The gap the widened equivalence closes, isolated.
+
+    The divergence here is chosen so that everything the OLD check compared
+    stays identical: both nodes report 92/SAFE_TO_TRADE with both authorities
+    revoked, and because 185,400 and 150,000 holders are both far above the
+    200-holder deduction line, the tier, the ceiling and the final score come
+    out the same on each. The old check would have called this equivalent and
+    stored the leader's holder count unchallenged.
+
+    It is not equivalent. holder_count is written to AuditRecord and rendered in
+    the dApp, and the two nodes disagree about it by 19%."""
+    direct_vm.sender = direct_alice
+    mock_live_sources(direct_vm, rugcheck=RUGCHECK_FULL_RESPONSE)
+    direct_vm.mock_llm(r".*", llm_verdict(safety_score=92, verdict="SAFE_TO_TRADE"))
+
+    contract = direct_deploy(CONTRACT)
+    contract.audit_token(WIF_CA, request_id="req_metric_divergence_1", payment_amount=1000)
+
+    stored = contract.get_audit(WIF_CA)
+    assert stored["holder_count"] == 185400
+    assert stored["safety_score"] == 92
+    assert stored["score_ceiling"] == 100
+
+    # The validator's independent re-run reads a different holder count, and
+    # nothing else changes: same LP burn, same concentration, same authorities.
+    divergent = dict(RUGCHECK_FULL_RESPONSE)
+    divergent["totalHolders"] = 150000
+    direct_vm.clear_mocks()
+    mock_live_sources(direct_vm, rugcheck=divergent)
+    direct_vm.mock_llm(r".*", llm_verdict(safety_score=92, verdict="SAFE_TO_TRADE"))
+
+    assert direct_vm.run_validator() is False
