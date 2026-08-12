@@ -71,9 +71,9 @@ py -3.12 -m pytest tests/ -v
 
 ## 🌐 Live GenLayer StudioNet Deployment & Explorer Links
 
-- **Active Intelligent Contract Address**: [`0x1A0F1AFFc2586D033e9ACB22cCB89b2567AdB1D8`](https://explorer-studio.genlayer.com/address/0x1A0F1AFFc2586D033e9ACB22cCB89b2567AdB1D8)
-- **Contract Explorer Link**: [https://explorer-studio.genlayer.com/address/0x1A0F1AFFc2586D033e9ACB22cCB89b2567AdB1D8](https://explorer-studio.genlayer.com/address/0x1A0F1AFFc2586D033e9ACB22cCB89b2567AdB1D8)
-- **Deployment Tx Hash**: [`0xf2d8d06313fe0726a3eccd4115a818002a0b0ff207e7062f76a3dc948c1b4a13`](https://explorer-studio.genlayer.com/tx/0xf2d8d06313fe0726a3eccd4115a818002a0b0ff207e7062f76a3dc948c1b4a13)
+- **Active Intelligent Contract Address**: [`0x566066a3C62fA1174e3107bc604a993FC1e00d4F`](https://explorer-studio.genlayer.com/address/0x566066a3C62fA1174e3107bc604a993FC1e00d4F)
+- **Contract Explorer Link**: [https://explorer-studio.genlayer.com/address/0x566066a3C62fA1174e3107bc604a993FC1e00d4F](https://explorer-studio.genlayer.com/address/0x566066a3C62fA1174e3107bc604a993FC1e00d4F)
+- **Deployment Tx Hash**: [`0xfea459ff216d87b5b207af81aaa5b7f753d9a16969ac6396fbd97891f8d88a4f`](https://explorer-studio.genlayer.com/tx/0xfea459ff216d87b5b207af81aaa5b7f753d9a16969ac6396fbd97891f8d88a4f)
 - **GenVM Execution Status**: `SUCCESS` (`FINALIZED`)
 
 This is the only address to audit. Earlier deployments referenced in the git
@@ -83,28 +83,31 @@ bytecode.
 
 ### Proof of real multi-validator consensus
 
-Audit transaction [`0x3cf3dd352a9a85c818672ea9199f89ec241ae39dbb500416ad600bf0723c2e8c`](https://explorer-studio.genlayer.com/tx/0x3cf3dd352a9a85c818672ea9199f89ec241ae39dbb500416ad600bf0723c2e8c)
+Audit transaction [`0x5f04c450966c3e783f92c5d81131c1bf62737cc50a4a28cd87d38220e3e78746`](https://explorer-studio.genlayer.com/tx/0x5f04c450966c3e783f92c5d81131c1bf62737cc50a4a28cd87d38220e3e78746)
 on the contract above, read back from `eth_getTransactionByHash`:
 
 | Field | Value |
 | :--- | :--- |
 | Initial validators | 5 |
 | Leader execution | `SUCCESS` |
-| Validator votes | 3 × `agree`, 1 × `disagree`, 1 × `idle` |
+| Validator votes | 3 × `agree`, 2 × `idle` |
 | Outcome | `ACCEPTED` (majority agreement) |
 
-The `disagree` vote is the point worth reading. Validators are not rubber-stamping
-a leader receipt: each independently re-executes the DEXScreener fetch, the
-RugCheck fetch and the LLM audit inside `validator_fn`, then compares the result
-through `_check_equivalence`. A node whose own round lands outside that envelope
-votes against, exactly as one did here. A shape check cannot disagree.
+Validators are not rubber-stamping a leader receipt: each independently
+re-executes the DEXScreener fetch, the RugCheck fetch and the LLM audit inside
+`validator_fn`, then compares the result through `_check_equivalence`. A node
+whose own round lands outside that envelope votes against — as one did on the
+immediately preceding deployment, whose consensus and equivalence code is
+identical to this one's, in audit tx
+[`0x3cf3dd35…`](https://explorer-studio.genlayer.com/tx/0x3cf3dd352a9a85c818672ea9199f89ec241ae39dbb500416ad600bf0723c2e8c)
+(3 `agree` / 1 `disagree` / 1 `idle`). A shape check cannot disagree.
 
 ### The stored report shows the evidence rules working
 
 That transaction's stored record, read back with `get_audit`:
 
 ```
-safety_score      = 75        # the model returned 90
+safety_score      = 75
 score_ceiling     = 75        # 100 tier cap - 25 for the real concentration
 verdict           = HIGH_VOLATILITY_WARN
 scale_tier        = Tier 4 Institutional Bluechip
@@ -114,12 +117,19 @@ top10_holder_pct  = 44
 liquidity read    = $3.95M    # from the deepest pool, not whichever listed first
 ```
 
-Three rules are visible at once. The LP burn figure nothing could back is zeroed
-and named in `unverified_fields` rather than stored as a measured `0`. The real
-44% top-10 concentration pulls the ceiling to 75, and the model's 90 is held to
-it — with the reason recorded in `risk_factors`. And because the score no longer
-clears 80, the verdict is reconciled down to `HIGH_VOLATILITY_WARN` even though
-the model asked for `SAFE_TO_TRADE`.
+The LP burn figure nothing could back is zeroed and named in
+`unverified_fields` rather than stored as a measured `0` — the dApp renders it
+as "Unknown", not "0%". The real 44% top-10 concentration pulls the ceiling from
+the Tier 4 cap of 100 down to 75, with the reason recorded in `risk_factors`,
+and the score is held to it. Liquidity is read from the deepest of the mint's
+pools rather than whichever the API listed first.
+
+When the evidence overrides what the model asked for, the brief says so.
+`_validate_findings` prefixes `ai_summary` with the model's original score and
+verdict alongside the stored ones, because the model writes its prose before any
+of these checks run — a brief opening "SAFE_TO_TRADE" under a
+`HIGH_VOLATILITY_WARN` badge reads as the audit contradicting itself. The model's
+wording is left intact rather than edited to match a conclusion it did not reach.
 
 Caller-supplied evidence is covered by the test suite rather than by a live
 transaction, since the contract no longer offers a path for it:
@@ -194,7 +204,7 @@ longer declines to suggest a token it would still have scored generously.
 | **2. Uses Live Authoritative Data** | Aggregates live DEXScreener market figures (Price, Volume 24h, Liquidity USD, Buy/Sell txns) & RugCheck/Birdeye security metrics (Mint/Freeze revocation, LP Burn %, Holder Count, Smart Money Wallets Count) directly from browser to contract payload. | ✅ PASSED |
 | **3. Complete Source Code & Docs** | 100% complete Python Intelligent Contract ([`contracts/meme_rug_auditor.py`](file:///f:/Work/Cryoto/Gen%20layer/gen2/contracts/meme_rug_auditor.py)), PyTest test suite ([`tests/test_meme_rug_auditor.py`](file:///f:/Work/Cryoto/Gen%20layer/gen2/tests/test_meme_rug_auditor.py)), and Cyberpunk React Web3 Frontend ([`frontend/src/App.jsx`](file:///f:/Work/Cryoto/Gen%20layer/gen2/frontend/src/App.jsx)). | ✅ PASSED |
 | **4. Frontend Handles Full Transaction Lifecycle** | React frontend connects to MetaMask, auto-switches to GenLayer StudioNet (Chain ID: 61999), sends 1,000 Wei fee transaction to `audit_token(...)`, handles mining spinner, and reads finalized on-chain state via `get_audit(...)`. | ✅ PASSED |
-| **5. Meaningfully Different from Boilerplate** | Introduces novel **Scale-Tier Hard Ceilings** (capping micro-caps at 55/100 max), **Buy/Sell Pressure Inflow Index**, and **Equivalence Consensus** logic with 48/48 passing pytest unit tests. | ✅ PASSED |
+| **5. Meaningfully Different from Boilerplate** | Introduces novel **Scale-Tier Hard Ceilings** (capping micro-caps at 55/100 max), **Buy/Sell Pressure Inflow Index**, and **Equivalence Consensus** logic with 50/50 passing pytest unit tests. | ✅ PASSED |
 | **6. Real Validator Consensus, Not a Shape Check** | The web fetch and LLM round run inside `gl.vm.run_nondet_unsafe(leader_fn, validator_fn)`. Every validator re-executes `leader_fn()` itself and gates the result through `_check_equivalence` before anything is stored; a failed round reverts rather than storing a report. Covered by `test_validator_consensus_agrees_on_reexecution` and `test_validator_consensus_rejects_divergent_reexecution`, and evidenced on-chain by the 3-agree/1-disagree vote above. | ✅ PASSED |
 | **7. Consensus Covers Every Displayed Fact** | Equivalence spans all of `AuditRecord`, not just score and verdict: distribution metrics, scale tier, score ceiling and `unverified_fields` are compared too, so no field reaches the user outside consensus. `test_equivalence_rejects_material_divergence` parametrises one case per field, and `test_validator_rejects_divergent_distribution_metrics` proves it end to end on a divergence the narrower check would have accepted. | ✅ PASSED |
 | **8. No Caller-Supplied Decision Evidence** | `telemetry_json` is ignored. Every figure that moves the outcome — authority flags, market cap, liquidity, distribution metrics — is fetched independently by each validator, and incomplete sources revert the audit. `test_caller_telemetry_is_never_evidence`, `test_telemetry_cannot_supply_missing_authority` and `test_telemetry_cannot_supply_missing_market_size` cover it. | ✅ PASSED |

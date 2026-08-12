@@ -411,13 +411,17 @@ def _normalize_llm_report(raw, token_address: str) -> dict:
 def _validate_findings(report: dict, ground_truth: dict) -> dict:
     """Cross-check a model verdict against hard evidence before it is stored.
 
-    Mint/freeze authority is an on-chain fact read from RugCheck or the
-    caller's telemetry payload, not a matter of model opinion, so the fetched
-    value always wins and an active authority forces CRITICAL_RUG_RISK. The
-    verdict is then reconciled with its own score band, keeping whichever of
-    the two readings is more severe so the model cannot label a failing score
-    as safe.
+    Mint/freeze authority is an on-chain fact read from this node's RugCheck
+    fetch, not a matter of model opinion, so the fetched value always wins and
+    an active authority forces CRITICAL_RUG_RISK. The verdict is then
+    reconciled with its own score band, keeping whichever of the two readings
+    is more severe so the model cannot label a failing score as safe.
     """
+    # What the model asked for, kept so the brief can be reconciled with what
+    # the evidence actually allowed.
+    model_score = _safe_int(report.get("safety_score"))
+    model_verdict = str(report.get("verdict") or "")
+
     if "mint_authority_disabled" in ground_truth:
         report["mint_disabled"] = bool(ground_truth["mint_authority_disabled"])
     if "freeze_authority_disabled" in ground_truth:
@@ -488,6 +492,22 @@ def _validate_findings(report: dict, ground_truth: dict) -> dict:
 
     if not report["risk_factors"]:
         report["risk_factors"] = ["Volatile Meme Market Dynamics"]
+
+    # The model writes its brief before any of the checks above run, so a capped
+    # score or a reconciled verdict leaves the prose arguing for a rating that
+    # was never stored — a summary opening "SAFE_TO_TRADE" underneath a
+    # HIGH_VOLATILITY_WARN badge, which reads as the audit contradicting itself.
+    # The model's words are left intact rather than edited, because rewriting an
+    # analyst's reasoning to match a conclusion it did not reach is its own kind
+    # of dishonesty. The adjustment is stated in front of them instead.
+    if model_score != report["safety_score"] or model_verdict != report["verdict"]:
+        report["ai_summary"] = (
+            f"[Adjusted by the contract: the model returned {model_score}/100 "
+            f"{model_verdict}; the fetched evidence supports "
+            f"{report['safety_score']}/100 {report['verdict']}. The brief below "
+            f"is the model's own wording and argues its original rating.] "
+            + report["ai_summary"]
+        )
     return report
 
 

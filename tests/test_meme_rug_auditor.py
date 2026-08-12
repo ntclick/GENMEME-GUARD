@@ -590,6 +590,55 @@ def test_healthy_turnover_is_not_punished(direct_vm, direct_deploy, direct_alice
     assert not any("liquidity" in r and "x liquidity" in r for r in report["risk_factors"])
 
 
+def test_adjusted_score_is_flagged_in_the_brief(direct_vm, direct_deploy, direct_alice):
+    """A capped audit must not read as though the model's rating stood.
+
+    Observed live: the badge said HIGH_VOLATILITY_WARN while the forensic brief
+    opened "SAFE_TO_TRADE – Tier 4 Institutional Bluechip", because the model
+    writes its prose before the evidence checks run. The model's wording is left
+    intact — rewriting an analyst's reasoning to match a conclusion it did not
+    reach would be worse — and the adjustment is stated in front of it."""
+    direct_vm.sender = direct_alice
+    mock_live_sources(direct_vm, dex={"pairs": [
+        dex_pair("SCAM", "micro", 42000.0, 9000.0, volume=5000.0),
+    ]}, rugcheck=RUGCHECK_FULL_RESPONSE)
+    direct_vm.mock_llm(r".*", llm_verdict(
+        safety_score=100, verdict="SAFE_TO_TRADE",
+        ai_summary="SAFE_TO_TRADE - a flawless bluechip with no concerns whatsoever.",
+    ))
+
+    contract = direct_deploy(CONTRACT)
+    contract.audit_token(WIF_CA, request_id="req_adjusted_brief_1", payment_amount=1000)
+
+    report = contract.get_audit(WIF_CA)
+    assert report["safety_score"] == 55
+    assert report["verdict"] == "HIGH_VOLATILITY_WARN"
+    summary = report["ai_summary"]
+    assert summary.startswith("[Adjusted by the contract:")
+    assert "100/100 SAFE_TO_TRADE" in summary          # what the model asked for
+    assert "55/100 HIGH_VOLATILITY_WARN" in summary    # what the evidence allowed
+    # The model's own words survive after the note.
+    assert "a flawless bluechip with no concerns whatsoever." in summary
+
+
+def test_unadjusted_brief_is_left_alone(direct_vm, direct_deploy, direct_alice):
+    """No adjustment, no preamble. A note on every audit would be noise, and
+    would train the reader to skip the one that matters."""
+    direct_vm.sender = direct_alice
+    mock_live_sources(direct_vm, rugcheck=RUGCHECK_FULL_RESPONSE)
+    direct_vm.mock_llm(r".*", llm_verdict(
+        safety_score=92, verdict="SAFE_TO_TRADE",
+        ai_summary="Deep liquidity, revoked authorities, healthy distribution.",
+    ))
+
+    contract = direct_deploy(CONTRACT)
+    contract.audit_token(WIF_CA, request_id="req_unadjusted_brief_1", payment_amount=1000)
+
+    report = contract.get_audit(WIF_CA)
+    assert report["safety_score"] == 92
+    assert report["ai_summary"] == "Deep liquidity, revoked authorities, healthy distribution."
+
+
 def test_verified_deductions_lower_the_ceiling(direct_vm, direct_deploy, direct_alice):
     """Deductions the rubric makes mandatory come off the ceiling when the
     evidence backs them — here a top-10 concentration RugCheck measured."""
