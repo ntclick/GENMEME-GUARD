@@ -80,6 +80,56 @@ def get_check_equivalence(direct_deploy):
     return mod._check_equivalence
 
 
+def get_pick_primary_pair(direct_deploy):
+    contract = direct_deploy("contracts/meme_rug_auditor.py")
+    mod = sys.modules["_contract_meme_rug_auditor"]
+    return mod._pick_primary_pair
+
+
+def dex_pair(symbol, pair_address, fdv, liquidity, volume=5000000.0):
+    return {
+        "baseToken": {"symbol": symbol, "name": symbol},
+        "pairAddress": pair_address,
+        "dexId": "raydium",
+        "priceUsd": "2.45",
+        "fdv": fdv,
+        "liquidity": {"usd": liquidity},
+        "volume": {"h24": volume},
+        "priceChange": {"h24": 12.5},
+        "txns": {"h24": {"buys": 1200, "sells": 800}},
+    }
+
+
+def test_primary_pair_is_the_deepest_not_the_first(direct_deploy):
+    """DEXScreener lists every pool a mint trades in, in an order it does not
+    promise to keep. Depth is what decides where price is really discovered."""
+    _pick = get_pick_primary_pair(direct_deploy)
+    junk = dex_pair("JUNK", "junk1", 2161.0, 2052.0)
+    deep = dex_pair("WIF", "deep1", 2450000000.0, 1500000.0)
+    mid = dex_pair("WIF", "mid1", 2450000000.0, 158793.0)
+
+    assert _pick([junk, deep, mid])["pairAddress"] == "deep1"
+    assert _pick([deep, junk, mid])["pairAddress"] == "deep1"
+    assert _pick([mid, junk, deep])["pairAddress"] == "deep1"
+
+
+def test_primary_pair_breaks_ties_deterministically(direct_deploy):
+    """Equal depth must not leave the choice to input order, or two validators
+    sorting the same data differently would audit different pools."""
+    _pick = get_pick_primary_pair(direct_deploy)
+    a = dex_pair("WIF", "aaa", 1000000.0, 500000.0)
+    b = dex_pair("WIF", "bbb", 9000000.0, 500000.0)
+
+    assert _pick([a, b])["pairAddress"] == _pick([b, a])["pairAddress"]
+
+
+def test_primary_pair_handles_empty_and_malformed(direct_deploy):
+    _pick = get_pick_primary_pair(direct_deploy)
+    assert _pick(None) is None
+    assert _pick([]) is None
+    assert _pick(["not a dict", 42]) is None
+
+
 def test_equivalence_valid(direct_deploy):
     _check_equivalence = get_check_equivalence(direct_deploy)
     res1 = {
@@ -474,6 +524,70 @@ def test_micro_cap_cannot_exceed_tier_ceiling(direct_vm, direct_deploy, direct_a
     assert report["safety_score"] == 55          # model's 100 does not survive
     assert report["verdict"] == "HIGH_VOLATILITY_WARN"
     assert any("Score capped at 55" in r for r in report["risk_factors"])
+
+
+def test_tier_is_read_from_the_deepest_pool(direct_vm, direct_deploy, direct_alice):
+    """A junk pool listed first must not decide the token's scale tier.
+
+    Observed live: one mint returned 25 pairs whose FDV ranged from $40 to
+    $4.36M. Reading pairs[0] meant whichever pool DEXScreener happened to list
+    first set the ceiling, so the same token could be audited as a Tier 4
+    bluechip or a Tier 1 micro-cap depending on response ordering. Here the
+    leading pool would give Tier 1 / ceiling 55; the deepest gives Tier 4."""
+    direct_vm.sender = direct_alice
+    mock_live_sources(direct_vm, dex={"pairs": [
+        dex_pair("WIF", "junk_first", 2161.0, 2052.0, volume=20304.0),
+        dex_pair("WIF", "deepest", 2450000000.0, 1500000.0, volume=5000000.0),
+        dex_pair("WIF", "shallow", 2450000000.0, 8750.0, volume=93476.0),
+    ]}, rugcheck=RUGCHECK_FULL_RESPONSE)
+    direct_vm.mock_llm(r".*", llm_verdict(safety_score=92, verdict="SAFE_TO_TRADE"))
+
+    contract = direct_deploy(CONTRACT)
+    contract.audit_token(WIF_CA, request_id="req_deepest_pool_1", payment_amount=1000)
+
+    report = contract.get_audit(WIF_CA)
+    assert report["scale_tier"] == "Tier 4 Institutional Bluechip"
+    assert report["score_ceiling"] == 100
+    assert report["safety_score"] == 92          # not capped to 55 by the junk pool
+
+
+def test_wash_trading_turnover_lowers_the_ceiling(direct_vm, direct_deploy, direct_alice):
+    """The slippage shield the dApp advertises, now enforced.
+
+    These are the live figures from a token that scored 75/100 while turning
+    over 138x its own depth in a day: $16.1M of volume against $116.7k of
+    liquidity. Nothing in the contract deducted for that."""
+    direct_vm.sender = direct_alice
+    mock_live_sources(direct_vm, dex={"pairs": [
+        dex_pair("PLUMB", "pumpswap", 1244638.0, 116699.0, volume=16155894.0),
+    ]}, rugcheck=RUGCHECK_FULL_RESPONSE)
+    direct_vm.mock_llm(r".*", llm_verdict(safety_score=75, verdict="HIGH_VOLATILITY_WARN"))
+
+    contract = direct_deploy(CONTRACT)
+    contract.audit_token(WIF_CA, request_id="req_turnover_1", payment_amount=1000)
+
+    report = contract.get_audit(WIF_CA)
+    assert report["scale_tier"] == "Tier 3 Mid-Cap"
+    assert report["score_ceiling"] == 58         # 88 tier cap - 30 for 138x turnover
+    assert report["safety_score"] == 58          # the model's 75 does not survive
+    assert any("138x liquidity" in r for r in report["risk_factors"])
+
+
+def test_healthy_turnover_is_not_punished(direct_vm, direct_deploy, direct_alice):
+    """A book trading a few times its depth is normal activity, not a signal."""
+    direct_vm.sender = direct_alice
+    mock_live_sources(direct_vm, dex={"pairs": [
+        dex_pair("WIF", "healthy", 2450000000.0, 1500000.0, volume=5000000.0),
+    ]}, rugcheck=RUGCHECK_FULL_RESPONSE)          # 3.3x turnover
+    direct_vm.mock_llm(r".*", llm_verdict(safety_score=92, verdict="SAFE_TO_TRADE"))
+
+    contract = direct_deploy(CONTRACT)
+    contract.audit_token(WIF_CA, request_id="req_healthy_turnover_1", payment_amount=1000)
+
+    report = contract.get_audit(WIF_CA)
+    assert report["score_ceiling"] == 100
+    assert report["safety_score"] == 92
+    assert not any("liquidity" in r and "x liquidity" in r for r in report["risk_factors"])
 
 
 def test_verified_deductions_lower_the_ceiling(direct_vm, direct_deploy, direct_alice):

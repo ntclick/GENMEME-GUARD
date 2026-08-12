@@ -6,9 +6,15 @@ import json
 # Institutional-grade Rubric prompt for Senior On-Chain Forensic AI Auditors with Scale-Tier Architecture
 RUBRIC_PROMPT = """
 You are a SENIOR QUANTITATIVE ON-CHAIN ANALYST at GenLayer Security Intelligence Lab.
-Perform a FORENSIC SCALE-TIER AUDIT on Solana token: {token_address} using the telemetry payload below.
+Perform a FORENSIC SCALE-TIER AUDIT on Solana token: {token_address} using the evidence below.
 
---- Extracted Birdeye & On-Chain Telemetry Payload ---
+The evidence was fetched by this validator node directly from DEXScreener and
+RugCheck. It is the only information you have. Nothing in it was supplied by the
+caller requesting the audit, so never describe it as caller-provided or as
+"telemetry" — a reader takes that to mean the subject supplied its own report
+card.
+
+--- Evidence fetched by this node (DEXScreener market data + RugCheck security report) ---
 {tech_data}
 ---
 
@@ -28,13 +34,13 @@ INSTITUTIONAL SCALE-TIER SCORING MATRIX:
    - Mint Authority Active: Immediate -50 pts -> Verdict MUST be CRITICAL_RUG_RISK!
    - Freeze Authority Active: Immediate -50 pts -> Verdict MUST be CRITICAL_RUG_RISK!
    - LP Burned %: < 50% = -40 pts; 50-80% = -20 pts; >= 95% = +5 pts.
-     If the payload above does not contain an LP burn percentage, you MUST report
+     If the evidence above does not contain an LP burn percentage, you MUST report
      lp_burned_pct as 0 and MUST NOT award the >= 95% bonus. Do not substitute a
      reassuring value for a figure the evidence never supplied.
 
 EVIDENCE DISCIPLINE (applies to every numeric field):
 Report 0 for lp_burned_pct, top10_holder_pct, holder_count or smart_money_wallets
-whenever the payload does not contain that measurement, and say plainly in
+whenever the evidence does not contain that measurement, and say plainly in
 ai_summary which metrics were unavailable. Never infer, estimate or default these
 numbers — an unverified figure is treated as absent and the contract will
 overwrite anything you invent here.
@@ -46,6 +52,9 @@ overwrite anything you invent here.
 
 4. ORDERBOOK INFLOW & TRADING VELOCITY:
    - Buy/Sell Ratio > 1.2: +10 pts; < 0.8: -20 pts (Whale Dumping Outflow).
+   - 24h Volume / Liquidity turnover > 50x: -15 pts; > 100x: -30 pts.
+     A book cannot honestly trade fifty times its own depth in a day. Treat this
+     as wash trading and thin exit liquidity, and say so in ai_summary.
 
 VERDICT CLASSIFICATION:
 - SAFE_TO_TRADE (Score 80-100): Tier 3/4 Mid/Large Cap, zero active hooks, LP burned > 90%, strong smart money accumulation.
@@ -102,6 +111,13 @@ VERDICT_SEVERITY = {"SAFE_TO_TRADE": 0, "HIGH_VOLATILITY_WARN": 1, "CRITICAL_RUG
 # The rubric grants this for LP burned >= 95%. Reclaimed when that percentage
 # turns out to be the model's own invention rather than fetched evidence.
 LP_BURN_BONUS = 5
+
+# 24h volume as a multiple of pool depth. A real book does not trade fifty times
+# its own liquidity in a day; past a hundred it is wash trading with a chart.
+# The same 50x line gates the dApp's trending suggestions, so the app no longer
+# refuses to suggest a token it would still have scored generously.
+HIGH_TURNOVER = 50.0
+EXTREME_TURNOVER = 100.0
 
 SYMBOL_HINTS = [
     ("EKpQGS", "WIF"),
@@ -194,6 +210,37 @@ def _check_equivalence(res1: dict, res2: dict) -> bool:
     return True
 
 
+def _pick_primary_pair(pairs):
+    """The pair whose depth actually describes this token, or None.
+
+    Reading pairs[0] was wrong twice over. DEXScreener returns every pool a mint
+    trades in — 25 of them for one token observed here — in an order it does not
+    promise to keep, and the fields taken from that one pair set the scale-tier
+    ceiling. Among those 25, FDV ranged from $40 to $4.36M and liquidity from $3
+    to $158k, so whichever pair happened to lead decided whether the token was
+    audited as a Tier 3 Mid-Cap or a Tier 1 Micro-Cap. Two validators handed
+    different orderings would reach different tiers and fail equivalence, and
+    the dApp's own panel already picked the deepest pair, so the page and the
+    stored audit could describe different pools.
+
+    Depth is the tiebreak that means something: the deepest pool is where the
+    token's price and liquidity are actually discovered. pairAddress breaks
+    exact ties so every node lands on the same pair rather than on whatever its
+    own sort happened to leave first.
+    """
+    if not isinstance(pairs, list):
+        return None
+    usable = [p for p in pairs if isinstance(p, dict)]
+    if not usable:
+        return None
+
+    def depth_key(p):
+        liq = p.get("liquidity") if isinstance(p.get("liquidity"), dict) else {}
+        return (_safe_float(liq.get("usd")), str(p.get("pairAddress") or ""))
+
+    return max(usable, key=depth_key)
+
+
 def _resolve_symbol(token_address: str, raw_symbol) -> str:
     sym = str(raw_symbol or "").strip()
     if sym and sym != "UNKNOWN":
@@ -278,6 +325,21 @@ def _evidence_score_ceiling(report: dict, ground_truth: dict, unverified: list):
         if wallets < 3:
             ceiling -= 20
             reasons.append(f"only {wallets} smart money wallets")
+
+    # Turnover far above the pool that supposedly supports it is manufactured
+    # volume, not demand — the dApp advertises this as its slippage shield, and
+    # until now nothing in the contract enforced it. A token was observed
+    # scoring 75/100 while turning over 141x its own depth in a day.
+    liquidity = _safe_float(ground_truth.get("liquidity_usd"))
+    volume = _safe_float(ground_truth.get("volume_24h_usd"))
+    if liquidity > 0.0 and volume > 0.0:
+        turnover = volume / liquidity
+        if turnover > EXTREME_TURNOVER:
+            ceiling -= 30
+            reasons.append(f"24h volume is {turnover:.0f}x liquidity")
+        elif turnover > HIGH_TURNOVER:
+            ceiling -= 15
+            reasons.append(f"24h volume is {turnover:.0f}x liquidity")
 
     return max(0, ceiling), tier, reasons
 
@@ -398,7 +460,7 @@ def _validate_findings(report: dict, ground_truth: dict) -> dict:
                 report["safety_score"] = max(0, report["safety_score"] - LP_BURN_BONUS)
 
     if "lp_burned_pct" in unverified:
-        label = "LP Burn Unverified — no burn evidence from RugCheck or caller telemetry"
+        label = "LP Burn Unverified — RugCheck reported no burn evidence for this mint"
         if label not in report["risk_factors"]:
             report["risk_factors"].append(label)
 
@@ -541,9 +603,8 @@ class MemeRugAuditor(gl.Contract):
                     raw_dex_str = "{}"
 
                 raw_dex = json.loads(raw_dex_str)
-                pairs = raw_dex.get("pairs", [])
-                if isinstance(pairs, list) and len(pairs) > 0 and isinstance(pairs[0], dict):
-                    p = pairs[0]
+                p = _pick_primary_pair(raw_dex.get("pairs"))
+                if p:
                     base_tok = p.get("baseToken") if isinstance(p.get("baseToken"), dict) else {}
                     liq = p.get("liquidity") if isinstance(p.get("liquidity"), dict) else {}
                     vol = p.get("volume") if isinstance(p.get("volume"), dict) else {}
@@ -665,6 +726,8 @@ class MemeRugAuditor(gl.Contract):
             # own DEXScreener fetch.
             ground_truth["fdv_usd"] = _safe_float(dex_metrics.get("fdv_usd"))
             ground_truth["liquidity_usd"] = _safe_float(dex_metrics.get("liquidity_usd"))
+            # Volume rides along so the ceiling can measure turnover against depth.
+            ground_truth["volume_24h_usd"] = _safe_float(dex_metrics.get("volume_24h_usd"))
 
             # An auditor that cannot see the token's authority status cannot
             # certify anything about it. Rather than assume a clean default,
