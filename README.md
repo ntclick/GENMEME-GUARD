@@ -71,33 +71,55 @@ py -3.12 -m pytest tests/ -v
 
 ## 🌐 Live GenLayer StudioNet Deployment & Explorer Links
 
-- **Active Intelligent Contract Address**: [`0x2e92EC8587377Dd27FF3d51dABe2f6238d9323F1`](https://explorer-studio.genlayer.com/address/0x2e92EC8587377Dd27FF3d51dABe2f6238d9323F1)
-- **Contract Explorer Link**: [https://explorer-studio.genlayer.com/address/0x2e92EC8587377Dd27FF3d51dABe2f6238d9323F1](https://explorer-studio.genlayer.com/address/0x2e92EC8587377Dd27FF3d51dABe2f6238d9323F1)
-- **Deployment Tx Hash**: `0xd238ca0ad9bf454e6674d4bac397c922aa908657cfcc9558f50a91ce3dba4520`
+- **Active Intelligent Contract Address**: [`0x89A635c008Dc1C6bec363985B5F6Df1785E1F06B`](https://explorer-studio.genlayer.com/address/0x89A635c008Dc1C6bec363985B5F6Df1785E1F06B)
+- **Contract Explorer Link**: [https://explorer-studio.genlayer.com/address/0x89A635c008Dc1C6bec363985B5F6Df1785E1F06B](https://explorer-studio.genlayer.com/address/0x89A635c008Dc1C6bec363985B5F6Df1785E1F06B)
+- **Deployment Tx Hash**: [`0x9598b45427a06c35b65530891883d11774d5a4ad5f053a3c83ef69f4cc4e6a58`](https://explorer-studio.genlayer.com/tx/0x9598b45427a06c35b65530891883d11774d5a4ad5f053a3c83ef69f4cc4e6a58)
 - **GenVM Execution Status**: `SUCCESS` (`FINALIZED`)
 
 This is the only address to audit. Earlier deployments referenced in the git
-history predate the validator-consensus implementation below and are **not**
-representative of this submission — they are left dead rather than updated so
-nobody reviews the wrong bytecode.
+history predate the hardening below and are **not** representative of this
+submission — they are left dead rather than updated so nobody reviews the wrong
+bytecode.
 
 ### Proof of real multi-validator consensus
 
-Audit transaction [`0x4acede8acd460291c740c0577c832e2b8808d1c5497aca094489dee6b5e302a2`](https://explorer-studio.genlayer.com/tx/0x4acede8acd460291c740c0577c832e2b8808d1c5497aca094489dee6b5e302a2)
-on the contract above, read back from `sim_getTransactionsForAddress`:
+Audit transaction [`0x5b909a5489ce09e7daf09047a021777c2a39ccd5a53209370c6db143ccea1026`](https://explorer-studio.genlayer.com/tx/0x5b909a5489ce09e7daf09047a021777c2a39ccd5a53209370c6db143ccea1026)
+on the contract above, read back from `eth_getTransactionByHash`:
 
 | Field | Value |
 | :--- | :--- |
 | Initial validators | 5 |
 | Leader execution | `SUCCESS` |
-| Validator votes | 3 × `agree`, 1 × `disagree`, 1 × `idle` |
-| Outcome | `FINALIZED` (majority agreement) |
+| Validator votes | 3 × `agree`, 2 × `idle` |
+| Outcome | `ACCEPTED` (majority agreement) |
 
-The `disagree` vote is the point worth reading: validators are not rubber-stamping
-a leader receipt. Each one independently re-executes the DEXScreener fetch, the
-RugCheck fetch and the LLM audit inside `validator_fn`, then compares the result
-through `_check_equivalence`. A node whose own round lands outside that envelope
-votes against, exactly as one did here.
+Validators are not rubber-stamping a leader receipt. Each one independently
+re-executes the DEXScreener fetch, the RugCheck fetch and the LLM audit inside
+`validator_fn`, then compares the result through `_check_equivalence`. A node
+whose own round lands outside that envelope votes against — observed on an
+earlier deployment of this same consensus code, where audit tx
+[`0x4acede8a…`](https://explorer-studio.genlayer.com/tx/0x4acede8acd460291c740c0577c832e2b8808d1c5497aca094489dee6b5e302a2)
+finalized 3 `agree` / 1 `disagree` / 1 `idle`. A shape check cannot disagree.
+
+### The stored report proves the caller cannot supply evidence
+
+The deployment script above sends a telemetry payload claiming
+`lp_burned_pct: 100` and `top10_holder_pct: 15`. Read back what the contract
+actually stored for that audit:
+
+```
+lp_burned_pct     = 0
+unverified_fields = ['lp_burned_pct']
+top10_holder_pct  = 44        # RugCheck's figure, not the caller's 15
+holder_count      = 770780    # RugCheck; the payload never supplied it
+score_ceiling     = 75        # 100 tier cap - 25 for the real concentration
+safety_score      = 65
+```
+
+The caller's flattering numbers are discarded, the LP figure nothing could back
+is zeroed and named, and the real concentration pulls the ceiling down. Under the
+previous contract the payload's `100` would have been stored as measured fact and
+kept the LP-burn bonus.
 
 ### What equivalence covers
 

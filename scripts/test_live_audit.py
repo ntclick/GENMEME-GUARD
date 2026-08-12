@@ -2,7 +2,7 @@
 GenMeme Guard - Live On-Chain AI Audit Test Script
 
 Queries live DEX & Birdeye metrics and triggers a real AI Consensus Audit on GenLayer StudioNet:
-Contract Address: 0x2e92EC8587377Dd27FF3d51dABe2f6238d9323F1
+Contract Address: 0x89A635c008Dc1C6bec363985B5F6Df1785E1F06B
 """
 
 import os
@@ -15,7 +15,7 @@ from genlayer_py import create_client, create_account, studionet
 load_dotenv()
 
 PRIVATE_KEY = os.getenv("GENLAYER_PRIVATE_KEY")
-CONTRACT_ADDRESS = os.getenv("CONTRACT_ADDRESS", "0x2e92EC8587377Dd27FF3d51dABe2f6238d9323F1")
+CONTRACT_ADDRESS = os.getenv("CONTRACT_ADDRESS", "0x89A635c008Dc1C6bec363985B5F6Df1785E1F06B")
 
 # Default Test Token: WIF (dogwifhat)
 TOKEN_CA = sys.argv[1] if len(sys.argv) > 1 else "EKpQGSJtjMFqKZ9KQanSqYXRcF8fBopzLHYxdM65zcjm"
@@ -38,27 +38,11 @@ def main():
     print(f"[*] Target Token:    {TOKEN_CA}")
     print("-" * 65)
 
-    # 1. Prepare Realistic Birdeye & DEX Telemetry Payload
-    print("[1/3] Preparing Birdeye & DEX Telemetry Payload...")
-    telemetry_payload = json.dumps({
-        "token_symbol": "WIF",
-        "token_name": "dogwifhat",
-        "price_usd": "2.45",
-        "market_cap_usd": 2450000000.0,
-        "fdv_usd": 2450000000.0,
-        "liquidity_usd": 15420000.0,
-        "volume_24h_usd": 185000000.0,
-        "price_change_24h_pct": 5.2,
-        "txns_24h_buys": 14200,
-        "txns_24h_sells": 11800,
-        "holder_count": 185400,
-        "smart_money_wallets": 42,
-        "top10_holder_pct": 18,
-        "mint_disabled": True,
-        "freeze_disabled": True,
-        "lp_burned_pct": 100,
-        "detected_risks": []
-    })
+    # 1. No telemetry is sent. Every figure that moves the outcome is fetched
+    # independently by each validator node, so a caller payload carries no
+    # evidentiary weight and the contract ignores it outright.
+    print("[1/3] Sending no telemetry — the contract fetches its own evidence...")
+    telemetry_payload = ""
 
     req_id = f"req_script_test_{int(time.time())}"
 

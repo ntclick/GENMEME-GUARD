@@ -72,26 +72,14 @@ def main():
 
         if contract_address:
             print(f"[*] Triggering AI Consensus Rug Audit for {SAMPLE_TOKEN_CA} (audit_token)...")
-            sample_wif_telemetry = json.dumps({
-                "token_symbol": "WIF",
-                "token_name": "dogwifhat",
-                "price_usd": "2.45",
-                "liquidity_usd": 15420000.0,
-                "volume_24h_usd": 185000000.0,
-                "fdv_usd": 2450000000.0,
-                "price_change_24h_pct": 5.2,
-                "txns_24h_buys": 14200,
-                "txns_24h_sells": 11800,
-                "mint_disabled": True,
-                "freeze_disabled": True,
-                "lp_burned_pct": 100,
-                "top10_holder_pct": 15,
-                "detected_risks": []
-            })
+            # No telemetry. The contract fetches its own evidence on every
+            # validator node and ignores this argument; sending a payload would
+            # only suggest it counted for something. Pass "" so the smoke test
+            # exercises the same path a real caller does.
             review_tx = client.write_contract(
                 address=contract_address,
                 function_name="audit_token",
-                args=[SAMPLE_TOKEN_CA, "req_deploy_test_wif_1", 1000, sample_wif_telemetry]
+                args=[SAMPLE_TOKEN_CA, "req_deploy_test_wif_1", 1000, ""]
             )
             print(f"[+] Audit Tx Hash: {review_tx}")
             client.wait_for_transaction_receipt(review_tx)
