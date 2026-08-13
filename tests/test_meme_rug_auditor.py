@@ -826,6 +826,75 @@ def test_unbacked_lp_burn_claim_is_stripped(direct_vm, direct_deploy, direct_ali
     assert any("LP Burn Unverified" in r for r in report["risk_factors"])
 
 
+def test_unbacked_deduction_claim_is_dropped_from_risks(direct_vm, direct_deploy, direct_alice):
+    """A model deduction for a metric nothing measured must not be displayed.
+
+    Observed on chain: "LP burn below 50% (-40 pts)" listed directly above the
+    contract's own "LP Burn Unverified" line, on an audit whose ceiling stayed at
+    the full Tier 3 cap because no such deduction was ever applied. The reader
+    sees -40 and believes the score was punished for a figure nothing backed."""
+    direct_vm.sender = direct_alice
+    mock_live_sources(direct_vm, rugcheck={
+        "token": {"mintAuthority": None, "freezeAuthority": None},
+        "risks": [], "score": 90,
+        "topHoldersPct": 19,
+        "totalHolders": 29414,
+        "topHolders": [
+            {"pct": 1.5, "insider": False},
+            {"pct": 2.0, "insider": False},
+            {"pct": 3.2, "insider": False},
+        ],
+        # deliberately no markets/lp -> lp_burned_pct unverified
+    })
+    direct_vm.mock_llm(r".*", llm_verdict(
+        safety_score=78, verdict="HIGH_VOLATILITY_WARN", lp_burned_pct=0,
+        risk_factors=[
+            "LP burn below 50% (-40 pts)",          # about an unverified metric
+            "Buy/sell ratio 0.82 shows sell pressure",   # a real, unrelated finding
+        ],
+    ))
+
+    contract = direct_deploy(CONTRACT)
+    contract.audit_token(WIF_CA, request_id="req_unbacked_claim_1", payment_amount=1000)
+
+    report = contract.get_audit(WIF_CA)
+    assert "lp_burned_pct" in report["unverified_fields"]
+    assert not any("-40 pts" in r for r in report["risk_factors"])
+    # The contract's own honest line replaces it, and unrelated findings survive.
+    assert any("LP Burn Unverified" in r for r in report["risk_factors"])
+    assert any("Buy/sell ratio" in r for r in report["risk_factors"])
+
+
+def test_backed_deduction_claim_is_kept(direct_vm, direct_deploy, direct_alice):
+    """When RugCheck really did report the burn, the model's finding about it
+    stands. Only claims about metrics nothing measured are dropped."""
+    direct_vm.sender = direct_alice
+    mock_live_sources(direct_vm, rugcheck={
+        "token": {"mintAuthority": None, "freezeAuthority": None},
+        "risks": [], "score": 40,
+        "markets": [{"lp": {"lpBurnedPct": 12}}],       # measured, and it is bad
+        "topHoldersPct": 19,
+        "totalHolders": 29414,
+        "topHolders": [
+            {"pct": 1.5, "insider": False},
+            {"pct": 2.0, "insider": False},
+            {"pct": 3.2, "insider": False},
+        ],
+    })
+    direct_vm.mock_llm(r".*", llm_verdict(
+        safety_score=45, verdict="CRITICAL_RUG_RISK",
+        risk_factors=["LP burn below 50% (-40 pts)"],
+    ))
+
+    contract = direct_deploy(CONTRACT)
+    contract.audit_token(WIF_CA, request_id="req_backed_claim_1", payment_amount=1000)
+
+    report = contract.get_audit(WIF_CA)
+    assert report["lp_burned_pct"] == 12
+    assert "lp_burned_pct" not in report["unverified_fields"]
+    assert any("-40 pts" in r for r in report["risk_factors"])
+
+
 def test_modest_lp_claim_keeps_score(direct_vm, direct_deploy, direct_alice):
     """Only the >= 95% bonus is reclaimed. A model reporting an unbacked but
     unremarkable LP figure loses the number, not points it never gained."""

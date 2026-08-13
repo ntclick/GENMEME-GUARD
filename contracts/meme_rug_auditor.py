@@ -408,6 +408,28 @@ def _normalize_llm_report(raw, token_address: str) -> dict:
     }
 
 
+# Phrases that mark a risk factor as being about a particular metric. Kept
+# narrow on purpose: "holders" alone would also match a top-10 concentration
+# finding, and dropping a real finding to silence an unbacked one trades a
+# confusing audit for a misleading one.
+UNVERIFIED_CLAIM_PHRASES = {
+    "lp_burned_pct": ("lp burn", "lp burned", "liquidity pool burn", "unburned lp", "unlocked lp"),
+    "top10_holder_pct": ("top 10", "top-10", "top10", "holder concentration", "whale concentration"),
+    "holder_count": ("holder count", "number of holders", "sybil"),
+    "smart_money_wallets": ("smart money", "smart-money"),
+}
+
+
+def _claims_unverified_metric(risk_factor, unverified: list) -> bool:
+    """True when this risk factor asserts something about a metric no source backed."""
+    text = str(risk_factor or "").lower()
+    for field in unverified:
+        for phrase in UNVERIFIED_CLAIM_PHRASES.get(field, ()):
+            if phrase in text:
+                return True
+    return False
+
+
 def _validate_findings(report: dict, ground_truth: dict) -> dict:
     """Cross-check a model verdict against hard evidence before it is stored.
 
@@ -462,6 +484,19 @@ def _validate_findings(report: dict, ground_truth: dict) -> dict:
             # awarded it off a number nothing backed.
             if evidence_key == "lp_burned_pct" and claimed >= 95:
                 report["safety_score"] = max(0, report["safety_score"] - LP_BURN_BONUS)
+
+    # The model's risk list is written against the numbers it invented, so a
+    # metric just zeroed as unverified can still be sitting in that list as a
+    # confident finding. Observed on chain: "LP burn below 50% (-40 pts)" listed
+    # directly above the contract's own "LP Burn Unverified" line, on an audit
+    # whose ceiling stayed at the full Tier 3 cap of 88 because no such deduction
+    # was ever applied. A reader sees the -40 and believes the score was punished
+    # for a figure nothing measured. These claims are dropped; the contract's own
+    # line below says what is actually known.
+    report["risk_factors"] = [
+        r for r in report["risk_factors"]
+        if not _claims_unverified_metric(r, unverified)
+    ]
 
     if "lp_burned_pct" in unverified:
         label = "LP Burn Unverified — RugCheck reported no burn evidence for this mint"
