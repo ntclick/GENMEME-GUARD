@@ -301,7 +301,6 @@ def composed_input(**overrides):
         "verdict": "SAFE_TO_TRADE",
         "scale_tier": "Tier 4 Institutional Bluechip",
         "score_ceiling": 100,
-        "score_capped": False,
         "mint_disabled": True,
         "freeze_disabled": True,
         "lp_burned_pct": 97,
@@ -330,12 +329,28 @@ def test_composed_risks_render_each_deduction(direct_deploy):
     risks = _compose(composed_input(
         lp_burned_pct=12, top10_holder_pct=44,
         ceiling_reasons=["LP_BURN_UNDER_50", "TOP10_OVER_40", "TURNOVER_OVER_100X"],
-        score_ceiling=45, score_capped=True,
+        score_ceiling=45,
     ))
     assert any("LP burn 12% is below 50%" in r for r in risks)
     assert any("Top 10 holders control 44%" in r for r in risks)
     assert any("100x pool depth" in r for r in risks)
-    assert any("Score capped at 45" in r for r in risks)
+
+
+def test_composed_risks_never_report_the_models_own_score(direct_deploy):
+    """Whether a cap fired depends on what one node's model asked for, and nodes'
+    models disagree — the same token has drawn 70, 80 and CRITICAL_RUG_RISK from
+    different validators in a single round. Reporting it would put a claim on
+    screen that every comparison in _check_equivalence can pass while the two
+    nodes still contradict each other about it."""
+    _compose = get_compose_risk_factors(direct_deploy)
+    capped = _compose(composed_input(safety_score=75, score_ceiling=75,
+                                     top10_holder_pct=44,
+                                     ceiling_reasons=["TOP10_OVER_40"]))
+    uncapped = _compose(composed_input(safety_score=70, score_ceiling=75,
+                                       top10_holder_pct=44,
+                                       ceiling_reasons=["TOP10_OVER_40"]))
+    assert capped == uncapped
+    assert not any("capped" in r.lower() for r in capped)
 
 
 def test_composed_risks_name_the_unmeasured(direct_deploy):
@@ -597,7 +612,11 @@ def test_micro_cap_cannot_exceed_tier_ceiling(direct_vm, direct_deploy, direct_a
     assert report["score_ceiling"] == 55
     assert report["safety_score"] == 55          # model's 100 does not survive
     assert report["verdict"] == "HIGH_VOLATILITY_WARN"
-    assert any("Score capped at 55" in r for r in report["risk_factors"])
+    # The bound is on display as a fact about the token, in the brief the dApp
+    # renders — not as a claim about what this node's model wanted, which is the
+    # one reading no validator agreed on.
+    assert "evidence ceiling 55" in report["ai_summary"]
+    assert "Tier 1 Micro-Cap" in report["ai_summary"]
 
 
 def test_tier_is_read_from_the_deepest_pool(direct_vm, direct_deploy, direct_alice):
@@ -667,14 +686,15 @@ def test_healthy_turnover_is_not_punished(direct_vm, direct_deploy, direct_alice
     assert not any("liquidity" in r and "x liquidity" in r for r in report["risk_factors"])
 
 
-def test_capped_audit_reads_as_capped(direct_vm, direct_deploy, direct_alice):
+def test_capped_audit_reports_the_stored_rating(direct_vm, direct_deploy, direct_alice):
     """A capped audit must not read as though the model's rating stood.
 
     Observed live: the badge said HIGH_VOLATILITY_WARN while the forensic brief
     opened "SAFE_TO_TRADE – Tier 4 Institutional Bluechip", because the model
     wrote its prose before the evidence checks ran. The brief is now written
     after them, from the figures they settled, so it cannot argue for a rating
-    that was never stored."""
+    that was never stored — and it does not mention the rating the model wanted
+    either, which is the one number here no validator agreed on."""
     direct_vm.sender = direct_alice
     mock_live_sources(direct_vm, dex={"pairs": [
         dex_pair("SCAM", "micro", 42000.0, 9000.0, volume=5000.0),
@@ -692,11 +712,13 @@ def test_capped_audit_reads_as_capped(direct_vm, direct_deploy, direct_alice):
     assert report["verdict"] == "HIGH_VOLATILITY_WARN"
     summary = report["ai_summary"]
     assert "HIGH_VOLATILITY_WARN at 55/100" in summary
-    assert "cut to the 55 ceiling" in summary
+    assert "evidence ceiling 55" in summary       # the bound, stated as a fact
     assert "flawless bluechip" not in summary
-    # The model's original rating is not quoted: it is the one number here no
-    # validator agreed on, since each node's model reaches its own.
+    # Neither the model's original rating nor the fact that it was overruled:
+    # both depend on what this node's model happened to ask for, and each node's
+    # model reaches its own.
     assert "100/100" not in summary
+    assert "capped" not in summary.lower()
 
 
 def test_uncapped_brief_states_the_stored_rating(direct_vm, direct_deploy, direct_alice):

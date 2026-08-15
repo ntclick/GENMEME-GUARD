@@ -35,7 +35,7 @@ genlayer-meme-guard/
    - Fetches Birdeye / RugCheck security report (`https://api.rugcheck.xyz/v1/tokens/{address}/report`) for token mint authority, freeze authority, and top holder concentration metrics.
 2. **Decentralized LLM Consensus (`gl.nondet.exec_prompt` & `gl.vm.run_nondet_unsafe`)**:
    - Leaders & Validators execute structured LLM prompts returning standard JSON security reports.
-   - Comparative Equivalence (`_check_equivalence`) covers every field the audit stores and displays — see [What equivalence covers](#what-equivalence-covers) — tolerating a 10-point score band while requiring exact agreement on verdict, scale tier and both authority flags.
+   - Comparative Equivalence (`_check_equivalence`) covers every field the audit stores and displays — see [What equivalence covers](#what-equivalence-covers) — tolerating a 10-point score band while requiring exact agreement on verdict, scale tier, the evidence ceiling, the deductions behind it and both authority flags.
 3. **On-Chain Persistence (`AuditRecord`)**:
    - Verified audits are recorded in state (`audited_records`) and queryable via public view functions `get_audit(token_address)` and `get_overview()`.
 
@@ -71,9 +71,9 @@ py -3.12 -m pytest tests/ -v
 
 ## 🌐 Live GenLayer StudioNet Deployment & Explorer Links
 
-- **Active Intelligent Contract Address**: [`0x0F134A29962B9729788D292ba1527d7916e80df4`](https://explorer-studio.genlayer.com/address/0x0F134A29962B9729788D292ba1527d7916e80df4)
-- **Contract Explorer Link**: [https://explorer-studio.genlayer.com/address/0x0F134A29962B9729788D292ba1527d7916e80df4](https://explorer-studio.genlayer.com/address/0x0F134A29962B9729788D292ba1527d7916e80df4)
-- **Deployment Tx Hash**: [`0x24c0337e8204dcd8ea40da96f0eecd50495a46f2d5ab558a42a18ac39007c3c4`](https://explorer-studio.genlayer.com/tx/0x24c0337e8204dcd8ea40da96f0eecd50495a46f2d5ab558a42a18ac39007c3c4)
+- **Active Intelligent Contract Address**: [`0x649b7A1d0b2E0c31B49Cf74D6daee46b26Af22D6`](https://explorer-studio.genlayer.com/address/0x649b7A1d0b2E0c31B49Cf74D6daee46b26Af22D6)
+- **Contract Explorer Link**: [https://explorer-studio.genlayer.com/address/0x649b7A1d0b2E0c31B49Cf74D6daee46b26Af22D6](https://explorer-studio.genlayer.com/address/0x649b7A1d0b2E0c31B49Cf74D6daee46b26Af22D6)
+- **Deployment Tx Hash**: [`0x04d6b2a7dc27f6cf11f84807b3350006ea807f606df14b01585f71114a63a630`](https://explorer-studio.genlayer.com/tx/0x04d6b2a7dc27f6cf11f84807b3350006ea807f606df14b01585f71114a63a630)
 - **GenVM Execution Status**: `SUCCESS` (`FINALIZED`)
 
 This is the only address to audit. Earlier deployments referenced in the git
@@ -83,26 +83,27 @@ bytecode.
 
 ### Proof of real multi-validator consensus
 
-Audit transaction [`0xc0fbc9d690846adc6844e6958995a7ffe98589cb9e5268b88af7e28b678ea239`](https://explorer-studio.genlayer.com/tx/0xc0fbc9d690846adc6844e6958995a7ffe98589cb9e5268b88af7e28b678ea239)
+Audit transaction [`0xaa72788cb3db2b812d60857e1739aa58519ac66d79a5d189c8e07a7c2f3592ac`](https://explorer-studio.genlayer.com/tx/0xaa72788cb3db2b812d60857e1739aa58519ac66d79a5d189c8e07a7c2f3592ac)
 on the contract above, read back from `eth_getTransactionByHash`:
 
-| Field | Value |
-| :--- | :--- |
-| Initial validators | 5 |
-| Leader execution | `SUCCESS` |
-| Validator votes | 3 × `agree`, 1 × `disagree`, 1 × `idle` |
-| Outcome | `ACCEPTED` (majority agreement) |
-| Deployment tx | `FINALIZED` |
+| Round | Validator votes | Outcome |
+| :--- | :--- | :--- |
+| 1 | 1 × `agree`, 3 × `disagree`, 1 × `idle` | rejected, leader redrawn |
+| 2 | 1 × `agree`, 3 × `disagree`, 1 × `idle` | rejected, leader redrawn |
+| 3 | 3 × `agree`, 2 × `idle` | `ACCEPTED` |
 
 Validators are not rubber-stamping a leader receipt: each independently
 re-executes the DEXScreener fetch, the RugCheck fetch and the LLM audit inside
-`validator_fn`, then compares the result through `_check_equivalence`. One node
-in the round above landed outside that envelope and voted against — the audit
-carried on the other three, which is the design working rather than failing.
-Rejections large enough to lose the round happen too: leaders whose model
-reached `CRITICAL_RUG_RISK` where the rest reached `HIGH_VOLATILITY_WARN` have
-been voted down and the leader redrawn, because `verdict` is compared exactly. A
-shape check cannot disagree with anything.
+`validator_fn`, then compares the result through `_check_equivalence`. Two
+leaders in a row were voted down here before one produced a result the others
+could reproduce. That is the mechanism working — a shape check cannot disagree
+with anything, and would have stored the first leader's report.
+
+Most audits settle on the first or second round; four consecutive runs against
+this deployment took 3, 1, 2 and 2 rounds, all `ACCEPTED`. The rejections come
+from the models themselves: `verdict` is compared exactly, and the same token
+has drawn `CRITICAL_RUG_RISK` from one node's model and `HIGH_VOLATILITY_WARN`
+from another's in a single round.
 
 Reproduce it yourself against the live contract, watching every vote as it lands:
 
@@ -115,24 +116,25 @@ py scripts/test_live_audit.py
 That transaction's stored record, read back with `get_audit`:
 
 ```
-safety_score      = 70        # the model's own judgement, under the ceiling
+safety_score      = 75
 score_ceiling     = 75        # 100 tier cap - 25 for the real concentration
+ceiling_reasons   = ['TOP10_OVER_40']
 verdict           = HIGH_VOLATILITY_WARN
 scale_tier        = Tier 4 Institutional Bluechip
 lp_burned_pct     = 0
 unverified_fields = ['lp_burned_pct']
 top10_holder_pct  = 43
-holder_count      = 771,150
+holder_count      = 771,146
 liquidity read    = $3.99M    # from the deepest pool, not whichever listed first
 ```
 
 The LP burn figure nothing could back is zeroed and named in
 `unverified_fields` rather than stored as a measured `0` — the dApp renders it
 as "Unknown", not "0%". The real 43% top-10 concentration pulls the ceiling from
-the Tier 4 cap of 100 down to 75, with the reason recorded in `risk_factors`.
-The ceiling is a bound, not a rescore: the model judged this token at 70 and
-kept it, because 70 is below what the evidence allows. Liquidity is read from
-the deepest of the mint's pools rather than whichever the API listed first.
+the Tier 4 cap of 100 down to 75, and the rule that fired is recorded in
+`ceiling_reasons`. The ceiling is a bound rather than a rescore: a model judging
+this token below 75 keeps its own number. Liquidity is read from the deepest of
+the mint's pools rather than whichever the API listed first.
 
 ### The rationale the user reads is composed from agreed evidence
 
@@ -187,8 +189,8 @@ tolerance depends on what the field is:
 | `verdict`, `mint_disabled`, `freeze_disabled` | exact |
 | `scale_tier`, `token_symbol`, `analysis_source` | exact |
 | `unverified_fields` | exact, order-insensitive |
-| `ceiling_reasons` | exact, order-insensitive |
-| `safety_score`, `score_ceiling` | within 10 points |
+| `ceiling_reasons`, `score_ceiling` | exact |
+| `safety_score` | within 10 points |
 | `lp_burned_pct`, `top10_holder_pct` | within 2 percentage points |
 | `holder_count`, `smart_money_wallets` | within 5% |
 | `risk_factors`, `ai_summary` | composed from the rows above |
@@ -197,7 +199,17 @@ tolerance depends on what the field is:
 codes rather than sentences: a turnover multiple drifts between two fetches
 seconds apart, but whether it crossed 50× or 100× is the finding the deduction
 was actually made on, and that is either the same on both nodes or it is a
-disagreement.
+disagreement. `score_ceiling` is the tier cap less a fixed amount per rule that
+fired, so it is a pure function of `scale_tier` and `ceiling_reasons` and is
+compared exactly — the 10-point band it used to carry was slack from when the
+deductions behind it were not compared at all.
+
+Nothing on display reports whether the model's own score was above the ceiling.
+That was the last unagreed claim: whether a cap fires depends on what one node's
+model happened to ask for, so two nodes could pass every comparison in this
+table and still show one reader "the evidence overruled the model" and another
+nothing of the kind. The ceiling and the deductions behind it are stated
+instead, and both are agreed.
 
 The last row is not an exemption. `risk_factors` and `ai_summary` are rendered
 from the fields above them, so two nodes agreeing on those fields have agreed on
@@ -252,7 +264,7 @@ longer declines to suggest a token it would still have scored generously.
 | **2. Uses Live Authoritative Data** | Every validator fetches DEXScreener market figures (Price, Volume 24h, Liquidity USD, Buy/Sell txns) and RugCheck/Birdeye security metrics (Mint/Freeze revocation, LP Burn %, Holder Count, Smart Money Wallets Count) itself, inside `leader_fn`. Nothing is taken from the browser or from the caller — see [No caller-supplied evidence](#no-caller-supplied-evidence). | ✅ PASSED |
 | **3. Complete Source Code & Docs** | 100% complete Python Intelligent Contract ([`contracts/meme_rug_auditor.py`](file:///f:/Work/Cryoto/Gen%20layer/gen2/contracts/meme_rug_auditor.py)), PyTest test suite ([`tests/test_meme_rug_auditor.py`](file:///f:/Work/Cryoto/Gen%20layer/gen2/tests/test_meme_rug_auditor.py)), and Cyberpunk React Web3 Frontend ([`frontend/src/App.jsx`](file:///f:/Work/Cryoto/Gen%20layer/gen2/frontend/src/App.jsx)). | ✅ PASSED |
 | **4. Frontend Handles Full Transaction Lifecycle** | React frontend connects to MetaMask, auto-switches to GenLayer StudioNet (Chain ID: 61999), sends 1,000 Wei fee transaction to `audit_token(...)`, handles mining spinner, and reads finalized on-chain state via `get_audit(...)`. | ✅ PASSED |
-| **5. Meaningfully Different from Boilerplate** | Introduces novel **Scale-Tier Hard Ceilings** (capping micro-caps at 55/100 max), **Buy/Sell Pressure Inflow Index**, and **Equivalence Consensus** logic with 58/58 passing pytest unit tests. | ✅ PASSED |
+| **5. Meaningfully Different from Boilerplate** | Introduces novel **Scale-Tier Hard Ceilings** (capping micro-caps at 55/100 max), **Buy/Sell Pressure Inflow Index**, and **Equivalence Consensus** logic with 59/59 passing pytest unit tests. | ✅ PASSED |
 | **6. Real Validator Consensus, Not a Shape Check** | The web fetch and LLM round run inside `gl.vm.run_nondet_unsafe(leader_fn, validator_fn)`. Every validator re-executes `leader_fn()` itself and gates the result through `_check_equivalence` before anything is stored; a failed round reverts rather than storing a report. Covered by `test_validator_consensus_agrees_on_reexecution` and `test_validator_consensus_rejects_divergent_reexecution`, and evidenced on-chain by the rejected first round above. | ✅ PASSED |
 | **7. Consensus Covers Every Displayed Fact** | Equivalence spans all of `AuditRecord`, not just score and verdict: distribution metrics, scale tier, score ceiling, `unverified_fields` and `ceiling_reasons` are compared too. The two remaining fields, `risk_factors` and `ai_summary`, are composed by the contract from exactly those compared fields rather than stored as model prose, so nothing reaches the user outside consensus — see [The rationale the user reads is composed from agreed evidence](#the-rationale-the-user-reads-is-composed-from-agreed-evidence). `test_equivalence_rejects_material_divergence` parametrises one case per field, `test_validator_rejects_divergent_distribution_metrics` and `test_validator_rejects_divergent_deductions` prove it end to end, and `test_composed_risks_are_a_function_of_agreed_fields` pins the composition. | ✅ PASSED |
 | **8. No Caller-Supplied Decision Evidence** | `telemetry_json` is ignored. Every figure that moves the outcome — authority flags, market cap, liquidity, distribution metrics — is fetched independently by each validator, and incomplete sources revert the audit. `test_caller_telemetry_is_never_evidence`, `test_telemetry_cannot_supply_missing_authority` and `test_telemetry_cannot_supply_missing_market_size` cover it. | ✅ PASSED |

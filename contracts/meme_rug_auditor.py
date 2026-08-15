@@ -92,9 +92,8 @@ Return strictly a single valid JSON object matching this exact schema — no mar
 """
 
 SCORE_TOLERANCE = 10
-# score_ceiling is a quantity in the same 0-100 space as the score, derived from
-# the tier plus verified deductions, so it is held to the same tolerance.
-CEILING_TOLERANCE = 10
+# score_ceiling has no tolerance — see _check_equivalence for why it does not
+# need one now that the deductions behind it are compared.
 # Percentage-point drift allowed between two nodes reading the same source
 # seconds apart. Wide enough for a live figure to move, far too narrow to hide
 # the difference between a burned LP and an unburned one.
@@ -218,7 +217,12 @@ def _check_equivalence(res1: dict, res2: dict) -> bool:
 
     if not _within_abs(res1.get("safety_score"), res2.get("safety_score"), SCORE_TOLERANCE):
         return False
-    if not _within_abs(res1.get("score_ceiling"), res2.get("score_ceiling"), CEILING_TOLERANCE):
+    # Exact, not banded. The ceiling is the tier cap less a fixed deduction per
+    # rule that fired, so it is a pure function of scale_tier and
+    # ceiling_reasons, both compared exactly just above — two nodes that agree
+    # on those cannot arrive at different ceilings. It carried a 10-point
+    # tolerance back when the deductions behind it were not compared at all.
+    if _safe_int(res1.get("score_ceiling")) != _safe_int(res2.get("score_ceiling")):
         return False
     for key in ("lp_burned_pct", "top10_holder_pct"):
         if not _within_abs(res1.get(key), res2.get(key), PCT_TOLERANCE):
@@ -524,10 +528,15 @@ def _compose_risk_factors(report: dict) -> list:
             + " — stored as 0, which here means unmeasured rather than zero"
         )
 
-    if report.get("score_capped"):
-        findings.append(
-            f"Score capped at {report['score_ceiling']} by {report['scale_tier']} evidence"
-        )
+    # Nothing here reports whether the model's own score was above the ceiling.
+    # That was the last unagreed claim on display: whether a cap fired depends on
+    # what one node's model happened to ask for, and nodes' models routinely
+    # disagree — the same token has drawn 70, 80 and CRITICAL_RUG_RISK from
+    # different validators in one round. Two nodes could pass every comparison in
+    # _check_equivalence and still show one reader "the evidence overruled the
+    # model" and another nothing of the kind. The ceiling and the deductions
+    # behind it are stated above and are agreed; what a particular model wanted
+    # is not the audit's finding.
 
     if not findings:
         findings.append("Volatile Meme Market Dynamics")
@@ -570,19 +579,13 @@ def _compose_summary(report: dict) -> str:
     else:
         why = "No mandatory deduction was triggered by the fetched evidence."
 
-    capped = (
-        f" The model scored this token above what the evidence supports, so the "
-        f"score was cut to the {report['score_ceiling']} ceiling."
-        if report.get("score_capped") else ""
-    )
-
     return (
         f"{report.get('token_symbol')}: {report.get('verdict')} at "
         f"{_safe_int(report.get('safety_score'))}/100, classified {report.get('scale_tier')} "
         f"(evidence ceiling {_safe_int(report.get('score_ceiling'))}). "
         f"Contract hooks: {hooks}. "
         f"Distribution: {distribution}. "
-        f"{why}{capped} "
+        f"{why} "
         f"Every figure here was fetched independently by each validator and agreed in consensus; "
         f"the score and verdict are the model's, held to this evidence."
     )
@@ -642,8 +645,7 @@ def _validate_findings(report: dict, ground_truth: dict) -> dict:
     report["score_ceiling"] = ceiling
     report["scale_tier"] = tier
     report["ceiling_reasons"] = ceiling_reasons
-    report["score_capped"] = report["safety_score"] > ceiling
-    if report["score_capped"]:
+    if report["safety_score"] > ceiling:
         report["safety_score"] = ceiling
 
     banded = _band_verdict(report["safety_score"])
