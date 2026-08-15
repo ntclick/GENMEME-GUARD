@@ -86,25 +86,10 @@ def get_pick_primary_pair(direct_deploy):
     return mod._pick_primary_pair
 
 
-def get_narratives_agree(direct_deploy):
+def get_compose_risk_factors(direct_deploy):
     contract = direct_deploy("contracts/meme_rug_auditor.py")
     mod = sys.modules["_contract_meme_rug_auditor"]
-    return mod._narratives_agree
-
-
-# A phrase that appears only in the narrative-comparison prompt, never in the
-# audit rubric. Mocks are matched in registration order, so registering this one
-# first lets a test answer the judge round separately from the audit round.
-JUDGE_PROMPT_MARKER = r"SAME MATERIAL CLAIMS"
-
-
-def mock_narrative_judge(vm, equivalent=True, raw=None):
-    """Answer the validator's narrative-comparison round. Register before the
-    catch-all audit mock or the audit response will swallow it."""
-    vm.mock_llm(JUDGE_PROMPT_MARKER, raw if raw is not None else json.dumps({
-        "equivalent": equivalent,
-        "reason": "test-supplied judgement",
-    }))
+    return mod._compose_risk_factors
 
 
 def dex_pair(symbol, pair_address, fdv, liquidity, volume=5000000.0):
@@ -308,48 +293,67 @@ def test_equivalence_ignores_unverified_field_ordering(direct_deploy):
     assert _check_equivalence(leader, validator) is True
 
 
-def narrative(**overrides):
-    """The prose half of a result, as _validate_findings leaves it."""
+def composed_input(**overrides):
+    """A settled report, as _validate_findings leaves it before composing."""
     result = {
-        "contract_findings": [],
-        "model_risk_factors": ["High volume volatility"],
-        "model_summary": "Deep liquidity, revoked authorities, healthy distribution.",
+        "token_symbol": "WIF",
+        "safety_score": 92,
+        "verdict": "SAFE_TO_TRADE",
+        "scale_tier": "Tier 4 Institutional Bluechip",
+        "score_ceiling": 100,
+        "score_capped": False,
+        "mint_disabled": True,
+        "freeze_disabled": True,
+        "lp_burned_pct": 97,
+        "top10_holder_pct": 21,
+        "holder_count": 185400,
+        "smart_money_wallets": 42,
+        "unverified_fields": [],
+        "ceiling_reasons": [],
     }
     result.update(overrides)
     return result
 
 
-def test_narratives_agree_on_identical_prose(direct_deploy):
-    """Two nodes that wrote the same words need no judge round — spending a
-    prompt to confirm it would only add a way for the check to fail."""
-    _narratives_agree = get_narratives_agree(direct_deploy)
-    assert _narratives_agree(narrative(), narrative()) is True
+def test_composed_risks_are_a_function_of_agreed_fields(direct_deploy):
+    """The whole point of composing the rationale: two nodes holding the same
+    agreed fields produce the same displayed list, so agreeing on the fields is
+    agreeing on what the user reads. Nothing else feeds it."""
+    _compose = get_compose_risk_factors(direct_deploy)
+    assert _compose(composed_input()) == _compose(composed_input())
 
 
-def test_narratives_reject_divergent_contract_findings(direct_deploy):
-    """The contract's own findings are derived from fields already inside
-    equivalence, so they are compared exactly rather than by meaning. A node
-    that could not verify the LP burn has not reached the same audit as one
-    that could."""
-    _narratives_agree = get_narratives_agree(direct_deploy)
-    leader = narrative(contract_findings=["LP_BURN_UNVERIFIED"])
-    validator = narrative(contract_findings=[])
-    assert _narratives_agree(leader, validator) is False
+def test_composed_risks_render_each_deduction(direct_deploy):
+    """Every mandatory deduction the evidence triggered gets its own line, with
+    the agreed figure in it."""
+    _compose = get_compose_risk_factors(direct_deploy)
+    risks = _compose(composed_input(
+        lp_burned_pct=12, top10_holder_pct=44,
+        ceiling_reasons=["LP_BURN_UNDER_50", "TOP10_OVER_40", "TURNOVER_OVER_100X"],
+        score_ceiling=45, score_capped=True,
+    ))
+    assert any("LP burn 12% is below 50%" in r for r in risks)
+    assert any("Top 10 holders control 44%" in r for r in risks)
+    assert any("100x pool depth" in r for r in risks)
+    assert any("Score capped at 45" in r for r in risks)
 
 
-def test_narratives_ignore_contract_finding_order(direct_deploy):
-    """Order is an artifact of iteration, not a finding."""
-    _narratives_agree = get_narratives_agree(direct_deploy)
-    leader = narrative(contract_findings=["MINT_AUTHORITY_ACTIVE", "LP_BURN_UNVERIFIED"])
-    validator = narrative(contract_findings=["LP_BURN_UNVERIFIED", "MINT_AUTHORITY_ACTIVE"])
-    assert _narratives_agree(leader, validator) is True
+def test_composed_risks_name_the_unmeasured(direct_deploy):
+    """A stored 0 is ambiguous on its own — 0% LP burned is a real finding — so
+    the list says which zeros nobody measured."""
+    _compose = get_compose_risk_factors(direct_deploy)
+    risks = _compose(composed_input(
+        lp_burned_pct=0, holder_count=0,
+        unverified_fields=["lp_burned_pct", "holder_count"],
+    ))
+    assert any("LP Burn Unverified" in r for r in risks)
+    assert any("Not verified by any source" in r and "holder count" in r for r in risks)
 
 
-def test_narratives_reject_empty_brief(direct_deploy):
-    """An audit whose rationale is blank gives a reader nothing to check the
-    numbers against, so it is not something to agree with."""
-    _narratives_agree = get_narratives_agree(direct_deploy)
-    assert _narratives_agree(narrative(model_summary=""), narrative()) is False
+def test_composed_risks_fall_back_when_nothing_fired(direct_deploy):
+    """A clean audit still says something rather than showing an empty list."""
+    _compose = get_compose_risk_factors(direct_deploy)
+    assert _compose(composed_input()) == ["Volatile Meme Market Dynamics"]
 
 
 def test_meme_rug_auditor_init(direct_vm, direct_deploy, direct_alice):
@@ -494,12 +498,15 @@ BLUECHIP_TELEMETRY = json.dumps({
 
 
 def test_llm_verdict_drives_stored_report(direct_vm, direct_deploy, direct_alice):
-    """The on-chain LLM round decides the stored report.
+    """The on-chain LLM round decides the stored score and verdict.
 
     Fetched evidence with revoked authorities and $1.5M liquidity is about as
     strong as this rubric gets, yet the model returns 63/HIGH_VOLATILITY_WARN
-    and that is exactly what lands on chain — the number and the wording both
-    come from the model, not from anything the contract could have computed.
+    and that is exactly what lands on chain — a number the contract could not
+    have computed for itself.
+
+    Its prose is a different matter: the model's own sentences are not stored,
+    because no other node produces them and so no other node can check them.
     """
     direct_vm.sender = direct_alice
     mock_live_sources(direct_vm, rugcheck=RUGCHECK_FULL_RESPONSE)
@@ -517,8 +524,10 @@ def test_llm_verdict_drives_stored_report(direct_vm, direct_deploy, direct_alice
     assert report["analysis_source"] == "llm_consensus"
     assert report["safety_score"] == 63
     assert report["verdict"] == "HIGH_VOLATILITY_WARN"
-    assert "momentum exhaustion" in report["risk_factors"][0]
-    assert report["ai_summary"] == "Model brief: elevated volatility despite deep liquidity."
+    assert not any("momentum exhaustion" in r for r in report["risk_factors"])
+    assert "Model brief" not in report["ai_summary"]
+    # What is stored instead states the audit that was actually reached.
+    assert report["ai_summary"].startswith("WIF: HIGH_VOLATILITY_WARN at 63/100")
 
 
 def test_evidence_backed_metrics_are_kept(direct_vm, direct_deploy, direct_alice):
@@ -635,7 +644,10 @@ def test_wash_trading_turnover_lowers_the_ceiling(direct_vm, direct_deploy, dire
     assert report["scale_tier"] == "Tier 3 Mid-Cap"
     assert report["score_ceiling"] == 58         # 88 tier cap - 30 for 138x turnover
     assert report["safety_score"] == 58          # the model's 75 does not survive
-    assert any("138x liquidity" in r for r in report["risk_factors"])
+    # The band, not the multiple: 138x is what this node measured, and the next
+    # node fetching seconds later measures something else. The band is what the
+    # deduction was made on and what every node can be held to.
+    assert any("above 100x pool depth" in r for r in report["risk_factors"])
 
 
 def test_healthy_turnover_is_not_punished(direct_vm, direct_deploy, direct_alice):
@@ -655,14 +667,14 @@ def test_healthy_turnover_is_not_punished(direct_vm, direct_deploy, direct_alice
     assert not any("liquidity" in r and "x liquidity" in r for r in report["risk_factors"])
 
 
-def test_adjusted_score_is_flagged_in_the_brief(direct_vm, direct_deploy, direct_alice):
+def test_capped_audit_reads_as_capped(direct_vm, direct_deploy, direct_alice):
     """A capped audit must not read as though the model's rating stood.
 
     Observed live: the badge said HIGH_VOLATILITY_WARN while the forensic brief
     opened "SAFE_TO_TRADE – Tier 4 Institutional Bluechip", because the model
-    writes its prose before the evidence checks run. The model's wording is left
-    intact — rewriting an analyst's reasoning to match a conclusion it did not
-    reach would be worse — and the adjustment is stated in front of it."""
+    wrote its prose before the evidence checks ran. The brief is now written
+    after them, from the figures they settled, so it cannot argue for a rating
+    that was never stored."""
     direct_vm.sender = direct_alice
     mock_live_sources(direct_vm, dex={"pairs": [
         dex_pair("SCAM", "micro", 42000.0, 9000.0, volume=5000.0),
@@ -673,22 +685,23 @@ def test_adjusted_score_is_flagged_in_the_brief(direct_vm, direct_deploy, direct
     ))
 
     contract = direct_deploy(CONTRACT)
-    contract.audit_token(WIF_CA, request_id="req_adjusted_brief_1", payment_amount=1000)
+    contract.audit_token(WIF_CA, request_id="req_capped_brief_1", payment_amount=1000)
 
     report = contract.get_audit(WIF_CA)
     assert report["safety_score"] == 55
     assert report["verdict"] == "HIGH_VOLATILITY_WARN"
     summary = report["ai_summary"]
-    assert summary.startswith("[Adjusted by the contract:")
-    assert "100/100 SAFE_TO_TRADE" in summary          # what the model asked for
-    assert "55/100 HIGH_VOLATILITY_WARN" in summary    # what the evidence allowed
-    # The model's own words survive after the note.
-    assert "a flawless bluechip with no concerns whatsoever." in summary
+    assert "HIGH_VOLATILITY_WARN at 55/100" in summary
+    assert "cut to the 55 ceiling" in summary
+    assert "flawless bluechip" not in summary
+    # The model's original rating is not quoted: it is the one number here no
+    # validator agreed on, since each node's model reaches its own.
+    assert "100/100" not in summary
 
 
-def test_unadjusted_brief_is_left_alone(direct_vm, direct_deploy, direct_alice):
-    """No adjustment, no preamble. A note on every audit would be noise, and
-    would train the reader to skip the one that matters."""
+def test_uncapped_brief_states_the_stored_rating(direct_vm, direct_deploy, direct_alice):
+    """No cap, no cap note — but the brief still reports the audit rather than
+    whatever the model felt like writing."""
     direct_vm.sender = direct_alice
     mock_live_sources(direct_vm, rugcheck=RUGCHECK_FULL_RESPONSE)
     direct_vm.mock_llm(r".*", llm_verdict(
@@ -697,11 +710,15 @@ def test_unadjusted_brief_is_left_alone(direct_vm, direct_deploy, direct_alice):
     ))
 
     contract = direct_deploy(CONTRACT)
-    contract.audit_token(WIF_CA, request_id="req_unadjusted_brief_1", payment_amount=1000)
+    contract.audit_token(WIF_CA, request_id="req_uncapped_brief_1", payment_amount=1000)
 
     report = contract.get_audit(WIF_CA)
     assert report["safety_score"] == 92
-    assert report["ai_summary"] == "Deep liquidity, revoked authorities, healthy distribution."
+    summary = report["ai_summary"]
+    assert summary.startswith("WIF: SAFE_TO_TRADE at 92/100")
+    assert "ceiling" not in summary.split("Contract hooks")[1]   # no cap note
+    assert "mint authority revoked" in summary
+    assert "LP burn 100%" in summary
 
 
 def test_verified_deductions_lower_the_ceiling(direct_vm, direct_deploy, direct_alice):
@@ -891,13 +908,15 @@ def test_unbacked_lp_burn_claim_is_stripped(direct_vm, direct_deploy, direct_ali
     assert any("LP Burn Unverified" in r for r in report["risk_factors"])
 
 
-def test_unbacked_deduction_claim_is_dropped_from_risks(direct_vm, direct_deploy, direct_alice):
+def test_unbacked_deduction_claim_never_reaches_the_report(direct_vm, direct_deploy, direct_alice):
     """A model deduction for a metric nothing measured must not be displayed.
 
     Observed on chain: "LP burn below 50% (-40 pts)" listed directly above the
     contract's own "LP Burn Unverified" line, on an audit whose ceiling stayed at
     the full Tier 3 cap because no such deduction was ever applied. The reader
-    sees -40 and believes the score was punished for a figure nothing backed."""
+    sees -40 and believes the score was punished for a figure nothing backed.
+    The displayed list is now built from the deductions that actually fired, so
+    a claim like that has no route into it at all."""
     direct_vm.sender = direct_alice
     mock_live_sources(direct_vm, rugcheck={
         "token": {"mintAuthority": None, "freezeAuthority": None},
@@ -925,14 +944,15 @@ def test_unbacked_deduction_claim_is_dropped_from_risks(direct_vm, direct_deploy
     report = contract.get_audit(WIF_CA)
     assert "lp_burned_pct" in report["unverified_fields"]
     assert not any("-40 pts" in r for r in report["risk_factors"])
-    # The contract's own honest line replaces it, and unrelated findings survive.
+    # The contract's own honest line replaces it. The model's unrelated
+    # observation goes too — it was never agreed on by anyone either.
     assert any("LP Burn Unverified" in r for r in report["risk_factors"])
-    assert any("Buy/sell ratio" in r for r in report["risk_factors"])
+    assert not any("Buy/sell ratio" in r for r in report["risk_factors"])
 
 
-def test_backed_deduction_claim_is_kept(direct_vm, direct_deploy, direct_alice):
-    """When RugCheck really did report the burn, the model's finding about it
-    stands. Only claims about metrics nothing measured are dropped."""
+def test_backed_deduction_is_reported(direct_vm, direct_deploy, direct_alice):
+    """When RugCheck really did report a bad burn, the deduction it triggers is
+    displayed — sourced from the fetched figure, not from the model's say-so."""
     direct_vm.sender = direct_alice
     mock_live_sources(direct_vm, rugcheck={
         "token": {"mintAuthority": None, "freezeAuthority": None},
@@ -957,7 +977,7 @@ def test_backed_deduction_claim_is_kept(direct_vm, direct_deploy, direct_alice):
     report = contract.get_audit(WIF_CA)
     assert report["lp_burned_pct"] == 12
     assert "lp_burned_pct" not in report["unverified_fields"]
-    assert any("-40 pts" in r for r in report["risk_factors"])
+    assert any("LP burn 12% is below 50% (-40)" in r for r in report["risk_factors"])
 
 
 def test_modest_lp_claim_keeps_score(direct_vm, direct_deploy, direct_alice):
@@ -1210,83 +1230,64 @@ def test_validator_rejects_divergent_distribution_metrics(direct_vm, direct_depl
     assert direct_vm.run_validator() is False
 
 
-def _run_leader_then_validator(direct_vm, direct_deploy, direct_alice, request_id,
-                               leader_llm, validator_llm, judge_equivalent=True,
-                               judge_raw=None):
-    """Store an audit from the leader, then re-run the validator against a node
-    whose own LLM round worded its findings differently."""
+def test_validator_ignores_model_prose_entirely(direct_vm, direct_deploy, direct_alice):
+    """Two nodes whose models wrote wildly different prose still agree, because
+    nothing either of them wrote is stored.
+
+    This is what composing the rationale buys. The earlier attempt compared the
+    two narratives through a second LLM round; measured on StudioNet it turned
+    most consensus rounds into rejections, because that round has to complete
+    and return schema-valid JSON on every validator for an honest audit to
+    settle."""
     direct_vm.sender = direct_alice
     mock_live_sources(direct_vm, rugcheck=RUGCHECK_FULL_RESPONSE)
-    direct_vm.mock_llm(r".*", leader_llm)
+    direct_vm.mock_llm(r".*", llm_verdict(
+        safety_score=92, verdict="SAFE_TO_TRADE",
+        risk_factors=["High volume volatility"],
+        ai_summary="Tier 4 bluechip with deep liquidity and revoked authorities.",
+    ))
 
     contract = direct_deploy(CONTRACT)
-    contract.audit_token(WIF_CA, request_id=request_id, payment_amount=1000)
+    contract.audit_token(WIF_CA, request_id="req_prose_ignored_1", payment_amount=1000)
 
     direct_vm.clear_mocks()
-    mock_narrative_judge(direct_vm, equivalent=judge_equivalent, raw=judge_raw)
     mock_live_sources(direct_vm, rugcheck=RUGCHECK_FULL_RESPONSE)
-    direct_vm.mock_llm(r".*", validator_llm)
-    return contract, direct_vm.run_validator()
+    direct_vm.mock_llm(r".*", llm_verdict(
+        safety_score=92, verdict="SAFE_TO_TRADE",
+        risk_factors=["Team wallet drained the pool three days ago"],
+        ai_summary="Tier 4 by size, but the deployer emptied the pool this week.",
+    ))
+
+    assert direct_vm.run_validator() is True
+    # And neither node's wording is what the reader gets.
+    report = contract.get_audit(WIF_CA)
+    assert "drained the pool" not in json.dumps(report)
+    assert "deep liquidity and revoked authorities" not in report["ai_summary"]
 
 
-def test_validator_rejects_a_narrative_the_evidence_agrees_on(direct_vm, direct_deploy,
-                                                              direct_alice):
-    """The gap this closes, isolated.
+def test_validator_rejects_divergent_deductions(direct_vm, direct_deploy, direct_alice):
+    """Which mandatory deductions fired is what the displayed rationale is
+    written from, so two nodes that disagree about them disagree about what the
+    user is shown — even where the resulting scores land within tolerance."""
+    direct_vm.sender = direct_alice
+    clean = dict(RUGCHECK_FULL_RESPONSE)
+    mock_live_sources(direct_vm, rugcheck=clean)
+    direct_vm.mock_llm(r".*", llm_verdict(safety_score=70, verdict="HIGH_VOLATILITY_WARN"))
 
-    Every structured field matches: same score, same verdict, same authorities,
-    same distribution metrics, same tier and ceiling. Only the rationale differs
-    — one node reports routine volatility, the other says the team drained the
-    pool. Both of those are written to AuditRecord and rendered as the audit's
-    reasoning, and the old check compared neither, so the leader could store any
-    narrative it liked underneath numbers everyone had agreed on."""
-    _, agreed = _run_leader_then_validator(
-        direct_vm, direct_deploy, direct_alice, "req_narrative_reject_1",
-        leader_llm=llm_verdict(
-            safety_score=92, verdict="SAFE_TO_TRADE",
-            risk_factors=["High volume volatility"],
-            ai_summary="Tier 4 bluechip with deep liquidity and revoked authorities.",
-        ),
-        validator_llm=llm_verdict(
-            safety_score=92, verdict="SAFE_TO_TRADE",
-            risk_factors=["Team wallet drained the pool three days ago"],
-            ai_summary="Tier 4 by size, but the deployer emptied the pool this week.",
-        ),
-        judge_equivalent=False,
-    )
-    assert agreed is False
+    contract = direct_deploy(CONTRACT)
+    contract.audit_token(WIF_CA, request_id="req_deduction_divergence_1", payment_amount=1000)
 
+    stored = contract.get_audit(WIF_CA)
+    assert stored["safety_score"] == 70          # under every ceiling, so uncapped
 
-def test_validator_accepts_the_same_findings_worded_differently(direct_vm, direct_deploy,
-                                                                direct_alice):
-    """No two LLM rounds write identical sentences. Comparing prose as strings
-    would make consensus unreachable rather than stricter, so the judge is asked
-    about claims, not wording."""
-    _, agreed = _run_leader_then_validator(
-        direct_vm, direct_deploy, direct_alice, "req_narrative_accept_1",
-        leader_llm=llm_verdict(
-            safety_score=92, verdict="SAFE_TO_TRADE",
-            risk_factors=["High volume volatility"],
-            ai_summary="Tier 4 bluechip with deep liquidity and revoked authorities.",
-        ),
-        validator_llm=llm_verdict(
-            safety_score=92, verdict="SAFE_TO_TRADE",
-            risk_factors=["Elevated volatility on heavy turnover"],
-            ai_summary="Institutional-tier token; authorities revoked, liquidity deep.",
-        ),
-        judge_equivalent=True,
-    )
-    assert agreed is True
+    # The validator's own fetch reads a top-10 concentration across the 40%
+    # line. Its ceiling drops to 75, which the model's 70 still fits under, so
+    # the score and verdict come out identical on both nodes — only the finding
+    # differs.
+    divergent = dict(RUGCHECK_FULL_RESPONSE)
+    divergent["topHoldersPct"] = 44
+    direct_vm.clear_mocks()
+    mock_live_sources(direct_vm, rugcheck=divergent)
+    direct_vm.mock_llm(r".*", llm_verdict(safety_score=70, verdict="HIGH_VOLATILITY_WARN"))
 
-
-def test_validator_fails_closed_on_an_unusable_judge_round(direct_vm, direct_deploy,
-                                                           direct_alice):
-    """A judge that answers with something other than the schema it was given
-    has not established agreement, and is not treated as having established
-    any — the same way the audit itself refuses to store an untrusted reply."""
-    _, agreed = _run_leader_then_validator(
-        direct_vm, direct_deploy, direct_alice, "req_narrative_garbage_1",
-        leader_llm=llm_verdict(safety_score=92, ai_summary="Leader phrasing."),
-        validator_llm=llm_verdict(safety_score=92, ai_summary="Validator phrasing."),
-        judge_raw="I could not decide, sorry.",
-    )
-    assert agreed is False
+    assert direct_vm.run_validator() is False

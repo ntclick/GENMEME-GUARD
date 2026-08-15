@@ -71,9 +71,9 @@ py -3.12 -m pytest tests/ -v
 
 ## 🌐 Live GenLayer StudioNet Deployment & Explorer Links
 
-- **Active Intelligent Contract Address**: [`0x362AE24004980b25d5735B00Ec6A5CA02C63c3ad`](https://explorer-studio.genlayer.com/address/0x362AE24004980b25d5735B00Ec6A5CA02C63c3ad)
-- **Contract Explorer Link**: [https://explorer-studio.genlayer.com/address/0x362AE24004980b25d5735B00Ec6A5CA02C63c3ad](https://explorer-studio.genlayer.com/address/0x362AE24004980b25d5735B00Ec6A5CA02C63c3ad)
-- **Deployment Tx Hash**: [`0x0b4dac39bf15d5fa1a34404a811f56a54d9ad738fe6401f960ddf68be46b3278`](https://explorer-studio.genlayer.com/tx/0x0b4dac39bf15d5fa1a34404a811f56a54d9ad738fe6401f960ddf68be46b3278)
+- **Active Intelligent Contract Address**: [`0x74EBBF27C50361B840D71A3C0491cd1495c8D0c9`](https://explorer-studio.genlayer.com/address/0x74EBBF27C50361B840D71A3C0491cd1495c8D0c9)
+- **Contract Explorer Link**: [https://explorer-studio.genlayer.com/address/0x74EBBF27C50361B840D71A3C0491cd1495c8D0c9](https://explorer-studio.genlayer.com/address/0x74EBBF27C50361B840D71A3C0491cd1495c8D0c9)
+- **Deployment Tx Hash**: [`0x9439c00975cf304323ec05d45d5971df6ea63e6cf448e124c04055f87e84a51c`](https://explorer-studio.genlayer.com/tx/0x9439c00975cf304323ec05d45d5971df6ea63e6cf448e124c04055f87e84a51c)
 - **GenVM Execution Status**: `SUCCESS` (`FINALIZED`)
 
 This is the only address to audit. Earlier deployments referenced in the git
@@ -83,7 +83,7 @@ bytecode.
 
 ### Proof of real multi-validator consensus
 
-Audit transaction [`0x06d8be78d0059ff0ad7967854c172611afe87100678a994459f0ac378b860bbf`](https://explorer-studio.genlayer.com/tx/0x06d8be78d0059ff0ad7967854c172611afe87100678a994459f0ac378b860bbf)
+Audit transaction [`0x12d698df5f450a382385f68917b1d58cdac065b23f84dcc50c3142d2c6cc77db`](https://explorer-studio.genlayer.com/tx/0x12d698df5f450a382385f68917b1d58cdac065b23f84dcc50c3142d2c6cc77db)
 on the contract above, read back from `eth_getTransactionByHash`:
 
 | Field | Value |
@@ -114,37 +114,55 @@ verdict           = HIGH_VOLATILITY_WARN
 scale_tier        = Tier 4 Institutional Bluechip
 lp_burned_pct     = 0
 unverified_fields = ['lp_burned_pct']
-top10_holder_pct  = 44
-liquidity read    = $3.95M    # from the deepest pool, not whichever listed first
+top10_holder_pct  = 43
+holder_count      = 771,154
+liquidity read    = $3.99M    # from the deepest pool, not whichever listed first
 ```
 
 The LP burn figure nothing could back is zeroed and named in
 `unverified_fields` rather than stored as a measured `0` — the dApp renders it
-as "Unknown", not "0%". The real 44% top-10 concentration pulls the ceiling from
+as "Unknown", not "0%". The real 43% top-10 concentration pulls the ceiling from
 the Tier 4 cap of 100 down to 75, with the reason recorded in `risk_factors`,
 and the score is held to it. Liquidity is read from the deepest of the mint's
 pools rather than whichever the API listed first.
 
-When the evidence overrides what the model asked for, the brief says so.
-`_validate_findings` prefixes `ai_summary` with the model's original score and
-verdict alongside the stored ones, because the model writes its prose before any
-of these checks run — a brief opening "SAFE_TO_TRADE" under a
-`HIGH_VOLATILITY_WARN` badge reads as the audit contradicting itself. The model's
-wording is left intact rather than edited to match a conclusion it did not reach.
+### The rationale the user reads is composed from agreed evidence
 
-The same applies to the risk list. The model writes it against the numbers it
-assumed, so a metric the contract has just marked unverified could still appear
-there as a confident finding — an audit was observed listing "LP burn below 50%
-(-40 pts)" directly above the contract's own "LP Burn Unverified" line, on a
-score that was never deducted for it. Claims about unverified metrics are
-dropped; findings the evidence backs are kept. The stored risk list for the
-transaction above shows the result:
+`risk_factors` and `ai_summary` used to be the model's own prose. They are what
+a reader acts on, and they sat outside consensus: no two nodes write the same
+sentences, so nothing compared them, so the leader's version was stored
+unchallenged. The model also writes them before any of the evidence checks run,
+which produced audits whose brief opened "SAFE_TO_TRADE" under a
+`HIGH_VOLATILITY_WARN` badge, and risk lists citing "LP burn below 50% (-40
+pts)" directly above the contract's own "LP Burn Unverified" line.
+
+Both are now composed by the contract, last, from the figures `_check_equivalence`
+compares — so agreeing on those figures is agreeing on the rationale rendered
+from them, and the rationale cannot describe an audit other than the one stored
+beside it. The stored list for the transaction above:
 
 ```
-Top 10 holder concentration is 44%, exceeding the 40% threshold …   <- backed, kept
-24h price action is negative at -3.18% …                            <- backed, kept
+Top 10 holders control 43% (-25)
 LP Burn Unverified — RugCheck reported no burn evidence for this mint
+Score capped at 75 by Tier 4 Institutional Bluechip evidence
 ```
+
+What this costs is worth naming: the model's own observations — sell-pressure
+reads, momentum calls — are no longer stored. They were never agreed on by
+anyone either. The model still writes a brief and still has to, since a verdict
+reached without stating why is not one the contract will store; it is reasoning,
+not published text.
+
+Comparing the two narratives by meaning was tried first, with a second LLM round
+per validator asking whether the accounts contradicted each other. Measured on
+StudioNet against the same token minutes apart: the build without that round
+reached `ACCEPTED` on the first consensus round 3 times out of 3, with it the
+same audit took 4 rounds, then 1, then 3. A probe build identical except that a
+failed judge round counted as agreement went back to 1, 2, 1 — so most of those
+rejections were the judge round failing to answer rather than two nodes
+disagreeing. Making every honest audit depend on a second LLM call completing
+and returning schema-valid JSON on every validator is a poor trade for catching
+a dishonest narrative, and composing the narrative removes the need to catch one.
 
 Caller-supplied evidence is covered by the test suite rather than by a live
 transaction, since the contract no longer offers a path for it:
@@ -162,14 +180,22 @@ tolerance depends on what the field is:
 | `verdict`, `mint_disabled`, `freeze_disabled` | exact |
 | `scale_tier`, `token_symbol`, `analysis_source` | exact |
 | `unverified_fields` | exact, order-insensitive |
+| `ceiling_reasons` | exact, order-insensitive |
 | `safety_score`, `score_ceiling` | within 10 points |
 | `lp_burned_pct`, `top10_holder_pct` | within 2 percentage points |
 | `holder_count`, `smart_money_wallets` | within 5% |
-| `risk_factors`, `ai_summary` | **excluded** — model prose |
+| `risk_factors`, `ai_summary` | composed from the rows above |
 
-Prose is excluded deliberately: no two independent LLM rounds write identical
-sentences, so requiring that would make consensus unreachable rather than
-stricter. Equivalence here means the nodes agree on the facts, not the wording.
+`ceiling_reasons` records which mandatory deductions the evidence triggered, as
+codes rather than sentences: a turnover multiple drifts between two fetches
+seconds apart, but whether it crossed 50× or 100× is the finding the deduction
+was actually made on, and that is either the same on both nodes or it is a
+disagreement.
+
+The last row is not an exemption. `risk_factors` and `ai_summary` are rendered
+from the fields above them, so two nodes agreeing on those fields have agreed on
+the rationale rendered from them. Comparing prose directly is what the previous
+attempt did, and what it cost is measured above.
 
 ### No caller-supplied evidence
 

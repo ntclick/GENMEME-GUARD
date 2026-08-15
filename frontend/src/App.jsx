@@ -28,7 +28,7 @@ import {
   X
 } from 'lucide-react';
 
-const DEFAULT_CONTRACT = '0x362AE24004980b25d5735B00Ec6A5CA02C63c3ad';
+const DEFAULT_CONTRACT = '0x74EBBF27C50361B840D71A3C0491cd1495c8D0c9';
 const STUDIONET_RPC_URL = 'https://studio.genlayer.com/api';
 const EXPLORER_BASE_URL = 'https://explorer-studio.genlayer.com';
 
@@ -1299,8 +1299,13 @@ export default function App() {
                   <div className="metric-label">
                     {(auditReport.token_symbol && auditReport.token_symbol !== 'UNKNOWN') ? auditReport.token_symbol : (dexData?.baseToken?.symbol || activePreset || 'TOKEN')} summary
                   </div>
+                  {/* No quote marks: this is not a quotation any more. The
+                      contract composes the brief from the evidence every
+                      validator agreed on, rather than storing one model's
+                      sentences, so presenting it as something an analyst said
+                      would misattribute it. */}
                   <p style={{ fontSize: '0.84rem', color: 'var(--text-secondary)', lineHeight: 1.55, marginTop: '0.35rem' }}>
-                    "{auditReport.ai_summary}"
+                    {auditReport.ai_summary}
                   </p>
                   <div style={{ display: 'flex', gap: '0.4rem', flexWrap: 'wrap', marginTop: '0.6rem' }}>
                     {auditReport.analysis_source && (
