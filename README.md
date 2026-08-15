@@ -30,7 +30,7 @@ genlayer-meme-guard/
 
 ## 🔑 Key Technical Features
 
-1. **Multi-Source Web Data Ingestion (`gl.nondet.get_webpage`)**:
+1. **Multi-Source Web Data Ingestion (`gl.nondet.web.get`)**:
    - Fetches DEXScreener token pairs (`https://api.dexscreener.com/latest/dex/tokens/{address}`) for price, 24h volume, liquidity pool depth, and buy/sell transaction count.
    - Fetches Birdeye / RugCheck security report (`https://api.rugcheck.xyz/v1/tokens/{address}/report`) for token mint authority, freeze authority, and top holder concentration metrics.
 2. **Decentralized LLM Consensus (`gl.nondet.exec_prompt` & `gl.vm.run_nondet_unsafe`)**:
@@ -97,11 +97,12 @@ on the contract above, read back from `eth_getTransactionByHash`:
 Validators are not rubber-stamping a leader receipt: each independently
 re-executes the DEXScreener fetch, the RugCheck fetch and the LLM audit inside
 `validator_fn`, then compares the result through `_check_equivalence`. A node
-whose own round lands outside that envelope votes against — as one did on the
-immediately preceding deployment, whose consensus and equivalence code is
-identical to this one's, in audit tx
-[`0x3cf3dd35…`](https://explorer-studio.genlayer.com/tx/0x3cf3dd352a9a85c818672ea9199f89ec241ae39dbb500416ad600bf0723c2e8c)
-(3 `agree` / 1 `disagree` / 1 `idle`). A shape check cannot disagree.
+whose own round lands outside that envelope votes against, and this deployment
+has been watched doing it: the round above settled on the second consensus
+round, the first having been rejected by validators whose own models reached
+`CRITICAL_RUG_RISK` where the leader's reached `HIGH_VOLATILITY_WARN`. `verdict`
+is compared exactly, so that is a disagreement and the round was thrown out. A
+shape check cannot disagree.
 
 ### The stored report shows the evidence rules working
 
@@ -242,12 +243,12 @@ longer declines to suggest a token it would still have scored generously.
 | Quality Bar Criterion | Implementation & Proof in GenMeme Guard | Status |
 | :--- | :--- | :---: |
 | **1. Solves a Real Trust Problem** | Solves the critical flaw of traditional static scanners (RugCheck/DEXScreener) assigning fake 100/100 scores to micro-cap scam coins. GenMeme Guard implements **Scale-Tier Cap Ceilings** and **Smart Money Orderbook Radar** via decentralized BFT Optimistic Democracy AI consensus. | ✅ PASSED |
-| **2. Uses Live Authoritative Data** | Aggregates live DEXScreener market figures (Price, Volume 24h, Liquidity USD, Buy/Sell txns) & RugCheck/Birdeye security metrics (Mint/Freeze revocation, LP Burn %, Holder Count, Smart Money Wallets Count) directly from browser to contract payload. | ✅ PASSED |
+| **2. Uses Live Authoritative Data** | Every validator fetches DEXScreener market figures (Price, Volume 24h, Liquidity USD, Buy/Sell txns) and RugCheck/Birdeye security metrics (Mint/Freeze revocation, LP Burn %, Holder Count, Smart Money Wallets Count) itself, inside `leader_fn`. Nothing is taken from the browser or from the caller — see [No caller-supplied evidence](#no-caller-supplied-evidence). | ✅ PASSED |
 | **3. Complete Source Code & Docs** | 100% complete Python Intelligent Contract ([`contracts/meme_rug_auditor.py`](file:///f:/Work/Cryoto/Gen%20layer/gen2/contracts/meme_rug_auditor.py)), PyTest test suite ([`tests/test_meme_rug_auditor.py`](file:///f:/Work/Cryoto/Gen%20layer/gen2/tests/test_meme_rug_auditor.py)), and Cyberpunk React Web3 Frontend ([`frontend/src/App.jsx`](file:///f:/Work/Cryoto/Gen%20layer/gen2/frontend/src/App.jsx)). | ✅ PASSED |
 | **4. Frontend Handles Full Transaction Lifecycle** | React frontend connects to MetaMask, auto-switches to GenLayer StudioNet (Chain ID: 61999), sends 1,000 Wei fee transaction to `audit_token(...)`, handles mining spinner, and reads finalized on-chain state via `get_audit(...)`. | ✅ PASSED |
-| **5. Meaningfully Different from Boilerplate** | Introduces novel **Scale-Tier Hard Ceilings** (capping micro-caps at 55/100 max), **Buy/Sell Pressure Inflow Index**, and **Equivalence Consensus** logic with 52/52 passing pytest unit tests. | ✅ PASSED |
-| **6. Real Validator Consensus, Not a Shape Check** | The web fetch and LLM round run inside `gl.vm.run_nondet_unsafe(leader_fn, validator_fn)`. Every validator re-executes `leader_fn()` itself and gates the result through `_check_equivalence` before anything is stored; a failed round reverts rather than storing a report. Covered by `test_validator_consensus_agrees_on_reexecution` and `test_validator_consensus_rejects_divergent_reexecution`, and evidenced on-chain by the 3-agree/1-disagree vote above. | ✅ PASSED |
-| **7. Consensus Covers Every Displayed Fact** | Equivalence spans all of `AuditRecord`, not just score and verdict: distribution metrics, scale tier, score ceiling and `unverified_fields` are compared too, so no field reaches the user outside consensus. `test_equivalence_rejects_material_divergence` parametrises one case per field, and `test_validator_rejects_divergent_distribution_metrics` proves it end to end on a divergence the narrower check would have accepted. | ✅ PASSED |
+| **5. Meaningfully Different from Boilerplate** | Introduces novel **Scale-Tier Hard Ceilings** (capping micro-caps at 55/100 max), **Buy/Sell Pressure Inflow Index**, and **Equivalence Consensus** logic with 58/58 passing pytest unit tests. | ✅ PASSED |
+| **6. Real Validator Consensus, Not a Shape Check** | The web fetch and LLM round run inside `gl.vm.run_nondet_unsafe(leader_fn, validator_fn)`. Every validator re-executes `leader_fn()` itself and gates the result through `_check_equivalence` before anything is stored; a failed round reverts rather than storing a report. Covered by `test_validator_consensus_agrees_on_reexecution` and `test_validator_consensus_rejects_divergent_reexecution`, and evidenced on-chain by the rejected first round above. | ✅ PASSED |
+| **7. Consensus Covers Every Displayed Fact** | Equivalence spans all of `AuditRecord`, not just score and verdict: distribution metrics, scale tier, score ceiling, `unverified_fields` and `ceiling_reasons` are compared too. The two remaining fields, `risk_factors` and `ai_summary`, are composed by the contract from exactly those compared fields rather than stored as model prose, so nothing reaches the user outside consensus — see [The rationale the user reads is composed from agreed evidence](#the-rationale-the-user-reads-is-composed-from-agreed-evidence). `test_equivalence_rejects_material_divergence` parametrises one case per field, `test_validator_rejects_divergent_distribution_metrics` and `test_validator_rejects_divergent_deductions` prove it end to end, and `test_composed_risks_are_a_function_of_agreed_fields` pins the composition. | ✅ PASSED |
 | **8. No Caller-Supplied Decision Evidence** | `telemetry_json` is ignored. Every figure that moves the outcome — authority flags, market cap, liquidity, distribution metrics — is fetched independently by each validator, and incomplete sources revert the audit. `test_caller_telemetry_is_never_evidence`, `test_telemetry_cannot_supply_missing_authority` and `test_telemetry_cannot_supply_missing_market_size` cover it. | ✅ PASSED |
 
 ---

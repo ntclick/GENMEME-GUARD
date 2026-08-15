@@ -828,7 +828,10 @@ export default function App() {
             </div>
 
             <div className="modal-section">
-              <div className="modal-section-title">Forensic brief</div>
+              {/* "Consensus rationale", not "forensic brief": this text is
+                  composed by the contract from the figures every validator
+                  agreed on, not written by the model that scored the token. */}
+              <div className="modal-section-title">Consensus rationale</div>
               <div className="modal-summary">{auditReport.ai_summary}</div>
             </div>
 
