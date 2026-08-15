@@ -61,7 +61,7 @@ const DEXS_DISCOVERY_SOURCES = [
 
 // DEXScreener's batch token endpoint takes at most 30 addresses per call.
 const DEXS_BATCH_SIZE = 30;
-const TRENDING_SLOTS = 6;
+const TRENDING_SLOTS = 5;
 
 // How often the chip row re-sweeps DEXScreener. What is trending moves on the
 // order of minutes, and one sweep costs three list calls plus a couple of batch
@@ -94,6 +94,19 @@ const num = (v) => {
 const formatUsd = (v) =>
   `$${num(v).toLocaleString(undefined, { notation: 'compact', maximumFractionDigits: 1 })}`;
 
+// How long a pool has existed, for the chip's hover text. The row is ordered
+// newest first, so age is the thing a reader most needs to see before treating
+// a chip as a suggestion — "2h old" and "3 years old" deserve different caution.
+function formatAge(createdAt) {
+  if (!createdAt) return 'age unknown';
+  const hours = (Date.now() - createdAt) / 3600000;
+  if (hours < 1) return 'under an hour old';
+  if (hours < 48) return `${Math.round(hours)}h old`;
+  const days = hours / 24;
+  if (days < 60) return `${Math.round(days)}d old`;
+  return `${Math.round(days / 30)}mo old`;
+}
+
 // Reduce a token's pairs to the one with the deepest book, which is the pair
 // whose liquidity and volume actually describe the token.
 function deepestPairsByToken(pairs) {
@@ -113,6 +126,9 @@ function deepestPairsByToken(pairs) {
         volume24hUsd: num(p.volume?.h24),
         fdvUsd: num(p.fdv),
         priceChange24h: num(p.priceChange?.h24),
+        // When this token's deepest pool opened. Used to order the row, and
+        // shown on hover so age is visible rather than implied.
+        pairCreatedAt: num(p.pairCreatedAt),
       });
     }
   }
@@ -190,9 +206,16 @@ async function fetchTrendingSolanaTokens(signal) {
 
   if (!pairsReached) return { tokens: [], ok: false };
 
+  // Newest first, by when the token's deepest pool opened. This is a deliberate
+  // product choice and it cuts against the rest of the app: the candidate pool
+  // is DEXScreener's boost and profile lists — paid placements and fresh mints —
+  // so ordering by age puts the youngest, least established tokens at the front
+  // of a row that reads as suggestions. The gates below still apply, and they
+  // are what keeps a brand-new $3k-liquidity mint out; a token with no pool
+  // timestamp sorts last rather than jumping the queue on a missing field.
   const tokens = [...deepestPairsByToken(pairGroups.flat()).values()]
     .filter(passesTrendingGates)
-    .sort((a, b) => b.volume24hUsd - a.volume24hUsd)
+    .sort((a, b) => b.pairCreatedAt - a.pairCreatedAt)
     .slice(0, TRENDING_SLOTS);
 
   return { tokens, ok: true };
@@ -1174,7 +1197,12 @@ export default function App() {
           </div>
 
           <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', flexWrap: 'wrap' }}>
-            <span style={{ fontSize: '0.82rem', color: 'var(--text-tertiary)' }}>Trending on DEXScreener:</span>
+            {/* Says "newest" out loud. The row is ordered by pool age, and a
+                reader who assumes it means "biggest" or "safest" would take the
+                first chip as the strongest suggestion when it is the youngest. */}
+            <span style={{ fontSize: '0.82rem', color: 'var(--text-tertiary)' }}>
+              Newest on DEXScreener:
+            </span>
             {trendingLoading ? (
               <span
                 style={{
@@ -1199,9 +1227,11 @@ export default function App() {
                   className={`chip ${activePreset === token.symbol ? 'active' : ''}`}
                   onClick={() => handleSelectToken(token.address, token.symbol)}
                   disabled={isAuditing}
-                  title={`${token.name || token.symbol} — liquidity ${formatUsd(
-                    token.liquidityUsd
-                  )}, 24h volume ${formatUsd(token.volume24hUsd)}. Trending only: not an endorsement.`}
+                  title={`${token.name || token.symbol} — ${formatAge(
+                    token.pairCreatedAt
+                  )}, liquidity ${formatUsd(token.liquidityUsd)}, 24h volume ${formatUsd(
+                    token.volume24hUsd
+                  )}. Newest first: recency is not quality, and this is not an endorsement.`}
                 >
                   {token.symbol}
                 </button>
