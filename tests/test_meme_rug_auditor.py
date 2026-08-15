@@ -86,6 +86,27 @@ def get_pick_primary_pair(direct_deploy):
     return mod._pick_primary_pair
 
 
+def get_narratives_agree(direct_deploy):
+    contract = direct_deploy("contracts/meme_rug_auditor.py")
+    mod = sys.modules["_contract_meme_rug_auditor"]
+    return mod._narratives_agree
+
+
+# A phrase that appears only in the narrative-comparison prompt, never in the
+# audit rubric. Mocks are matched in registration order, so registering this one
+# first lets a test answer the judge round separately from the audit round.
+JUDGE_PROMPT_MARKER = r"SAME MATERIAL CLAIMS"
+
+
+def mock_narrative_judge(vm, equivalent=True, raw=None):
+    """Answer the validator's narrative-comparison round. Register before the
+    catch-all audit mock or the audit response will swallow it."""
+    vm.mock_llm(JUDGE_PROMPT_MARKER, raw if raw is not None else json.dumps({
+        "equivalent": equivalent,
+        "reason": "test-supplied judgement",
+    }))
+
+
 def dex_pair(symbol, pair_address, fdv, liquidity, volume=5000000.0):
     return {
         "baseToken": {"symbol": symbol, "name": symbol},
@@ -285,6 +306,50 @@ def test_equivalence_ignores_unverified_field_ordering(direct_deploy):
     leader = equiv_result(unverified_fields=["lp_burned_pct", "holder_count"])
     validator = equiv_result(unverified_fields=["holder_count", "lp_burned_pct"])
     assert _check_equivalence(leader, validator) is True
+
+
+def narrative(**overrides):
+    """The prose half of a result, as _validate_findings leaves it."""
+    result = {
+        "contract_findings": [],
+        "model_risk_factors": ["High volume volatility"],
+        "model_summary": "Deep liquidity, revoked authorities, healthy distribution.",
+    }
+    result.update(overrides)
+    return result
+
+
+def test_narratives_agree_on_identical_prose(direct_deploy):
+    """Two nodes that wrote the same words need no judge round — spending a
+    prompt to confirm it would only add a way for the check to fail."""
+    _narratives_agree = get_narratives_agree(direct_deploy)
+    assert _narratives_agree(narrative(), narrative()) is True
+
+
+def test_narratives_reject_divergent_contract_findings(direct_deploy):
+    """The contract's own findings are derived from fields already inside
+    equivalence, so they are compared exactly rather than by meaning. A node
+    that could not verify the LP burn has not reached the same audit as one
+    that could."""
+    _narratives_agree = get_narratives_agree(direct_deploy)
+    leader = narrative(contract_findings=["LP_BURN_UNVERIFIED"])
+    validator = narrative(contract_findings=[])
+    assert _narratives_agree(leader, validator) is False
+
+
+def test_narratives_ignore_contract_finding_order(direct_deploy):
+    """Order is an artifact of iteration, not a finding."""
+    _narratives_agree = get_narratives_agree(direct_deploy)
+    leader = narrative(contract_findings=["MINT_AUTHORITY_ACTIVE", "LP_BURN_UNVERIFIED"])
+    validator = narrative(contract_findings=["LP_BURN_UNVERIFIED", "MINT_AUTHORITY_ACTIVE"])
+    assert _narratives_agree(leader, validator) is True
+
+
+def test_narratives_reject_empty_brief(direct_deploy):
+    """An audit whose rationale is blank gives a reader nothing to check the
+    numbers against, so it is not something to agree with."""
+    _narratives_agree = get_narratives_agree(direct_deploy)
+    assert _narratives_agree(narrative(model_summary=""), narrative()) is False
 
 
 def test_meme_rug_auditor_init(direct_vm, direct_deploy, direct_alice):
@@ -1143,3 +1208,85 @@ def test_validator_rejects_divergent_distribution_metrics(direct_vm, direct_depl
     direct_vm.mock_llm(r".*", llm_verdict(safety_score=92, verdict="SAFE_TO_TRADE"))
 
     assert direct_vm.run_validator() is False
+
+
+def _run_leader_then_validator(direct_vm, direct_deploy, direct_alice, request_id,
+                               leader_llm, validator_llm, judge_equivalent=True,
+                               judge_raw=None):
+    """Store an audit from the leader, then re-run the validator against a node
+    whose own LLM round worded its findings differently."""
+    direct_vm.sender = direct_alice
+    mock_live_sources(direct_vm, rugcheck=RUGCHECK_FULL_RESPONSE)
+    direct_vm.mock_llm(r".*", leader_llm)
+
+    contract = direct_deploy(CONTRACT)
+    contract.audit_token(WIF_CA, request_id=request_id, payment_amount=1000)
+
+    direct_vm.clear_mocks()
+    mock_narrative_judge(direct_vm, equivalent=judge_equivalent, raw=judge_raw)
+    mock_live_sources(direct_vm, rugcheck=RUGCHECK_FULL_RESPONSE)
+    direct_vm.mock_llm(r".*", validator_llm)
+    return contract, direct_vm.run_validator()
+
+
+def test_validator_rejects_a_narrative_the_evidence_agrees_on(direct_vm, direct_deploy,
+                                                              direct_alice):
+    """The gap this closes, isolated.
+
+    Every structured field matches: same score, same verdict, same authorities,
+    same distribution metrics, same tier and ceiling. Only the rationale differs
+    — one node reports routine volatility, the other says the team drained the
+    pool. Both of those are written to AuditRecord and rendered as the audit's
+    reasoning, and the old check compared neither, so the leader could store any
+    narrative it liked underneath numbers everyone had agreed on."""
+    _, agreed = _run_leader_then_validator(
+        direct_vm, direct_deploy, direct_alice, "req_narrative_reject_1",
+        leader_llm=llm_verdict(
+            safety_score=92, verdict="SAFE_TO_TRADE",
+            risk_factors=["High volume volatility"],
+            ai_summary="Tier 4 bluechip with deep liquidity and revoked authorities.",
+        ),
+        validator_llm=llm_verdict(
+            safety_score=92, verdict="SAFE_TO_TRADE",
+            risk_factors=["Team wallet drained the pool three days ago"],
+            ai_summary="Tier 4 by size, but the deployer emptied the pool this week.",
+        ),
+        judge_equivalent=False,
+    )
+    assert agreed is False
+
+
+def test_validator_accepts_the_same_findings_worded_differently(direct_vm, direct_deploy,
+                                                                direct_alice):
+    """No two LLM rounds write identical sentences. Comparing prose as strings
+    would make consensus unreachable rather than stricter, so the judge is asked
+    about claims, not wording."""
+    _, agreed = _run_leader_then_validator(
+        direct_vm, direct_deploy, direct_alice, "req_narrative_accept_1",
+        leader_llm=llm_verdict(
+            safety_score=92, verdict="SAFE_TO_TRADE",
+            risk_factors=["High volume volatility"],
+            ai_summary="Tier 4 bluechip with deep liquidity and revoked authorities.",
+        ),
+        validator_llm=llm_verdict(
+            safety_score=92, verdict="SAFE_TO_TRADE",
+            risk_factors=["Elevated volatility on heavy turnover"],
+            ai_summary="Institutional-tier token; authorities revoked, liquidity deep.",
+        ),
+        judge_equivalent=True,
+    )
+    assert agreed is True
+
+
+def test_validator_fails_closed_on_an_unusable_judge_round(direct_vm, direct_deploy,
+                                                           direct_alice):
+    """A judge that answers with something other than the schema it was given
+    has not established agreement, and is not treated as having established
+    any — the same way the audit itself refuses to store an untrusted reply."""
+    _, agreed = _run_leader_then_validator(
+        direct_vm, direct_deploy, direct_alice, "req_narrative_garbage_1",
+        leader_llm=llm_verdict(safety_score=92, ai_summary="Leader phrasing."),
+        validator_llm=llm_verdict(safety_score=92, ai_summary="Validator phrasing."),
+        judge_raw="I could not decide, sorry.",
+    )
+    assert agreed is False
