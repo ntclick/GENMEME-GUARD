@@ -63,6 +63,14 @@ const DEXS_DISCOVERY_SOURCES = [
 const DEXS_BATCH_SIZE = 30;
 const TRENDING_SLOTS = 6;
 
+// How often the chip row re-sweeps DEXScreener. What is trending moves on the
+// order of minutes, and one sweep costs three list calls plus a couple of batch
+// calls, so a minute keeps the row honest without pushing at the rate limit.
+// The timer only fires while the tab is visible — nobody is reading a
+// background tab, and a laptop left open overnight should not spend the night
+// polling.
+const TRENDING_REFRESH_MS = 60000;
+
 // Calibrated against live responses: of ~50 candidates carrying pair data,
 // roughly five clear this. Loosening it lets in tokens with $3k of liquidity
 // against $2M of daily volume — the wash-trading signature this app exists to
@@ -119,23 +127,33 @@ function passesTrendingGates(t) {
   return t.volume24hUsd / Math.max(t.liquidityUsd, 1) <= TRENDING_GATES.maxVolumeToLiquidity;
 }
 
-// Returns the trending tokens that survive the gates, ranked by 24h volume.
-// Returns [] rather than throwing: an empty chip row is a legitimate outcome
-// here (nothing trending is currently liquid enough to suggest) and the address
-// box works regardless, so a discovery failure must not take the page with it.
+// Returns { tokens, ok }: the trending tokens that survive the gates, ranked by
+// 24h volume, and whether the sweep actually reached DEXScreener.
+//
+// Never throws — an empty chip row is a legitimate outcome (nothing trending is
+// currently liquid enough to suggest) and the address box works regardless, so a
+// discovery failure must not take the page with it. But "nothing qualified" and
+// "could not ask" are different answers, and the refresh loop needs to tell them
+// apart: a network blip returning [] would otherwise blank a good list of chips
+// until the next sweep.
 async function fetchTrendingSolanaTokens(signal) {
+  let reached = false;
+
   const lists = await Promise.all(
     DEXS_DISCOVERY_SOURCES.map(async (url) => {
       try {
         const res = await fetch(url, { signal, cache: 'no-store' });
         if (!res.ok) return [];
         const data = await res.json();
+        reached = true;
         return Array.isArray(data) ? data : [];
       } catch {
         return [];
       }
     })
   );
+
+  if (!reached) return { tokens: [], ok: false };
 
   const addresses = [
     ...new Set(
@@ -145,13 +163,14 @@ async function fetchTrendingSolanaTokens(signal) {
         .map((e) => e.tokenAddress)
     ),
   ];
-  if (addresses.length === 0) return [];
+  if (addresses.length === 0) return { tokens: [], ok: true };
 
   const batches = [];
   for (let i = 0; i < addresses.length; i += DEXS_BATCH_SIZE) {
     batches.push(addresses.slice(i, i + DEXS_BATCH_SIZE));
   }
 
+  let pairsReached = false;
   const pairGroups = await Promise.all(
     batches.map(async (batch) => {
       try {
@@ -161,6 +180,7 @@ async function fetchTrendingSolanaTokens(signal) {
         );
         if (!res.ok) return [];
         const data = await res.json();
+        pairsReached = true;
         return Array.isArray(data?.pairs) ? data.pairs : [];
       } catch {
         return [];
@@ -168,10 +188,14 @@ async function fetchTrendingSolanaTokens(signal) {
     })
   );
 
-  return [...deepestPairsByToken(pairGroups.flat()).values()]
+  if (!pairsReached) return { tokens: [], ok: false };
+
+  const tokens = [...deepestPairsByToken(pairGroups.flat()).values()]
     .filter(passesTrendingGates)
     .sort((a, b) => b.volume24hUsd - a.volume24hUsd)
     .slice(0, TRENDING_SLOTS);
+
+  return { tokens, ok: true };
 }
 
 // Helper to switch or add GenLayer StudioNet chain (Chain ID: 61999 -> 0xf22f)
@@ -417,21 +441,44 @@ export default function App() {
   // differently to someone waiting for the chips to appear.
   const [trendingTokens, setTrendingTokens] = useState([]);
   const [trendingLoading, setTrendingLoading] = useState(true);
+  const [trendingUpdatedAt, setTrendingUpdatedAt] = useState(null);
 
   useEffect(() => {
-    const controller = new AbortController();
     let active = true;
-    (async () => {
-      try {
-        const tokens = await fetchTrendingSolanaTokens(controller.signal);
-        if (active) setTrendingTokens(tokens);
-      } finally {
-        if (active) setTrendingLoading(false);
+    let controller = null;
+
+    const load = async (isInitial) => {
+      if (controller) controller.abort();
+      controller = new AbortController();
+      const { tokens, ok } = await fetchTrendingSolanaTokens(controller.signal);
+      if (!active) return;
+      // A sweep that could not reach DEXScreener leaves the row alone. Writing
+      // its empty result would blank a good set of chips on one network blip
+      // and bring them back a minute later, which looks like the token list
+      // churning rather than the request failing.
+      if (ok) {
+        setTrendingTokens(tokens);
+        setTrendingUpdatedAt(Date.now());
       }
-    })();
+      if (isInitial) setTrendingLoading(false);
+    };
+
+    load(true);
+
+    const refreshIfVisible = () => {
+      if (document.visibilityState === 'visible') load(false);
+    };
+    const timer = setInterval(refreshIfVisible, TRENDING_REFRESH_MS);
+    // Coming back to the tab is exactly when the row is most likely stale, and
+    // waiting out the rest of the interval to notice would show yesterday's
+    // trending list to someone who just looked at it.
+    document.addEventListener('visibilitychange', refreshIfVisible);
+
     return () => {
       active = false;
-      controller.abort();
+      if (controller) controller.abort();
+      clearInterval(timer);
+      document.removeEventListener('visibilitychange', refreshIfVisible);
     };
   }, []);
 
@@ -1159,6 +1206,14 @@ export default function App() {
                   {token.symbol}
                 </button>
               ))
+            )}
+            {/* The row re-sweeps on its own, so it has to say when it last did.
+                Without a timestamp a stale list and a fresh one look identical,
+                and a reader has no way to tell that the chips are live. */}
+            {trendingUpdatedAt && (
+              <span style={{ fontSize: '0.75rem', color: 'var(--text-tertiary)' }}>
+                · updated {new Date(trendingUpdatedAt).toLocaleTimeString()}
+              </span>
             )}
           </div>
 
