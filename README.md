@@ -71,9 +71,9 @@ py -3.12 -m pytest tests/ -v
 
 ## 🌐 Live GenLayer StudioNet Deployment & Explorer Links
 
-- **Active Intelligent Contract Address**: [`0x74EBBF27C50361B840D71A3C0491cd1495c8D0c9`](https://explorer-studio.genlayer.com/address/0x74EBBF27C50361B840D71A3C0491cd1495c8D0c9)
-- **Contract Explorer Link**: [https://explorer-studio.genlayer.com/address/0x74EBBF27C50361B840D71A3C0491cd1495c8D0c9](https://explorer-studio.genlayer.com/address/0x74EBBF27C50361B840D71A3C0491cd1495c8D0c9)
-- **Deployment Tx Hash**: [`0x9439c00975cf304323ec05d45d5971df6ea63e6cf448e124c04055f87e84a51c`](https://explorer-studio.genlayer.com/tx/0x9439c00975cf304323ec05d45d5971df6ea63e6cf448e124c04055f87e84a51c)
+- **Active Intelligent Contract Address**: [`0x0F134A29962B9729788D292ba1527d7916e80df4`](https://explorer-studio.genlayer.com/address/0x0F134A29962B9729788D292ba1527d7916e80df4)
+- **Contract Explorer Link**: [https://explorer-studio.genlayer.com/address/0x0F134A29962B9729788D292ba1527d7916e80df4](https://explorer-studio.genlayer.com/address/0x0F134A29962B9729788D292ba1527d7916e80df4)
+- **Deployment Tx Hash**: [`0x24c0337e8204dcd8ea40da96f0eecd50495a46f2d5ab558a42a18ac39007c3c4`](https://explorer-studio.genlayer.com/tx/0x24c0337e8204dcd8ea40da96f0eecd50495a46f2d5ab558a42a18ac39007c3c4)
 - **GenVM Execution Status**: `SUCCESS` (`FINALIZED`)
 
 This is the only address to audit. Earlier deployments referenced in the git
@@ -83,49 +83,56 @@ bytecode.
 
 ### Proof of real multi-validator consensus
 
-Audit transaction [`0x12d698df5f450a382385f68917b1d58cdac065b23f84dcc50c3142d2c6cc77db`](https://explorer-studio.genlayer.com/tx/0x12d698df5f450a382385f68917b1d58cdac065b23f84dcc50c3142d2c6cc77db)
+Audit transaction [`0xc0fbc9d690846adc6844e6958995a7ffe98589cb9e5268b88af7e28b678ea239`](https://explorer-studio.genlayer.com/tx/0xc0fbc9d690846adc6844e6958995a7ffe98589cb9e5268b88af7e28b678ea239)
 on the contract above, read back from `eth_getTransactionByHash`:
 
 | Field | Value |
 | :--- | :--- |
 | Initial validators | 5 |
 | Leader execution | `SUCCESS` |
-| Validator votes | 3 × `agree`, 2 × `idle` |
+| Validator votes | 3 × `agree`, 1 × `disagree`, 1 × `idle` |
 | Outcome | `ACCEPTED` (majority agreement) |
 | Deployment tx | `FINALIZED` |
 
 Validators are not rubber-stamping a leader receipt: each independently
 re-executes the DEXScreener fetch, the RugCheck fetch and the LLM audit inside
-`validator_fn`, then compares the result through `_check_equivalence`. A node
-whose own round lands outside that envelope votes against, and this deployment
-has been watched doing it: the round above settled on the second consensus
-round, the first having been rejected by validators whose own models reached
-`CRITICAL_RUG_RISK` where the leader's reached `HIGH_VOLATILITY_WARN`. `verdict`
-is compared exactly, so that is a disagreement and the round was thrown out. A
-shape check cannot disagree.
+`validator_fn`, then compares the result through `_check_equivalence`. One node
+in the round above landed outside that envelope and voted against — the audit
+carried on the other three, which is the design working rather than failing.
+Rejections large enough to lose the round happen too: leaders whose model
+reached `CRITICAL_RUG_RISK` where the rest reached `HIGH_VOLATILITY_WARN` have
+been voted down and the leader redrawn, because `verdict` is compared exactly. A
+shape check cannot disagree with anything.
+
+Reproduce it yourself against the live contract, watching every vote as it lands:
+
+```bash
+py scripts/test_live_audit.py
+```
 
 ### The stored report shows the evidence rules working
 
 That transaction's stored record, read back with `get_audit`:
 
 ```
-safety_score      = 75
+safety_score      = 70        # the model's own judgement, under the ceiling
 score_ceiling     = 75        # 100 tier cap - 25 for the real concentration
 verdict           = HIGH_VOLATILITY_WARN
 scale_tier        = Tier 4 Institutional Bluechip
 lp_burned_pct     = 0
 unverified_fields = ['lp_burned_pct']
 top10_holder_pct  = 43
-holder_count      = 771,154
+holder_count      = 771,150
 liquidity read    = $3.99M    # from the deepest pool, not whichever listed first
 ```
 
 The LP burn figure nothing could back is zeroed and named in
 `unverified_fields` rather than stored as a measured `0` — the dApp renders it
 as "Unknown", not "0%". The real 43% top-10 concentration pulls the ceiling from
-the Tier 4 cap of 100 down to 75, with the reason recorded in `risk_factors`,
-and the score is held to it. Liquidity is read from the deepest of the mint's
-pools rather than whichever the API listed first.
+the Tier 4 cap of 100 down to 75, with the reason recorded in `risk_factors`.
+The ceiling is a bound, not a rescore: the model judged this token at 70 and
+kept it, because 70 is below what the evidence allows. Liquidity is read from
+the deepest of the mint's pools rather than whichever the API listed first.
 
 ### The rationale the user reads is composed from agreed evidence
 
@@ -145,7 +152,6 @@ beside it. The stored list for the transaction above:
 ```
 Top 10 holders control 43% (-25)
 LP Burn Unverified — RugCheck reported no burn evidence for this mint
-Score capped at 75 by Tier 4 Institutional Bluechip evidence
 ```
 
 What this costs is worth naming: the model's own observations — sell-pressure

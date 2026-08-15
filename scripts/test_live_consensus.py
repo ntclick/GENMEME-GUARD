@@ -28,42 +28,17 @@ CONTRACT_FILE = os.path.normpath(
 )
 WIF_CA = "EKpQGSJtjMFqKZ9KQanSqYXRcF8fBopzLHYxdM65zcjm"
 
-# Real WIF-scale market figures plus the authority flags the audit refuses to
-# proceed without. Deliberately no lp_burned_pct / holder_count /
-# smart_money_wallets / top10_holder_pct: asserting those here would hand the
-# contract numbers this script invented, which is exactly what the evidence
-# checks exist to catch. Whatever RugCheck returns for them stands, and
-# anything it does not cover comes back marked unverified.
-FULL_TELEMETRY = json.dumps({
-    "token_symbol": "WIF",
-    "token_name": "dogwifhat",
-    "price_usd": "2.45",
-    "market_cap_usd": 2450000000.0,
-    "fdv_usd": 2450000000.0,
-    "liquidity_usd": 15420000.0,
-    "volume_24h_usd": 185000000.0,
-    "price_change_24h_pct": 5.2,
-    "txns_24h_buys": 14200,
-    "txns_24h_sells": 11800,
-    "mint_disabled": True,
-    "freeze_disabled": True,
-    "detected_risks": []
-})
+# No telemetry payload is built. `telemetry_json` is accepted for call
+# compatibility and ignored: every figure that moves the outcome is fetched
+# independently by each validator, so a payload carries no evidentiary weight.
+# This script used to send elaborate market and authority figures, which read as
+# though the caller were supplying the evidence the audit runs on.
+NO_TELEMETRY = ""
 
 # A syntactically valid mint that no indexer knows. RugCheck and DEXScreener
 # both come back empty for it, so the contract has no authority evidence from
 # any source and must refuse rather than assume the authorities are revoked.
 UNKNOWN_MINT = "GmGuardUnknownMint1111111111111111111111111"
-
-NO_AUTHORITY_TELEMETRY = json.dumps({
-    "token_symbol": "NOEVIDENCE",
-    "fdv_usd": 2450000000.0,
-    "liquidity_usd": 15420000.0,
-    "volume_24h_usd": 185000000.0,
-    "txns_24h_buys": 14200,
-    "txns_24h_sells": 11800,
-    # deliberately no mint_disabled / freeze_disabled
-})
 
 
 def log(msg):
@@ -134,7 +109,7 @@ def main():
     tx = client.write_contract(
         address=contract_address,
         function_name="audit_token",
-        args=[WIF_CA, f"req_live_{stamp}", 1000, FULL_TELEMETRY],
+        args=[WIF_CA, f"req_live_{stamp}", 1000, NO_TELEMETRY],
     )
     log(f"    audit tx: {tx}")
     try:
@@ -175,7 +150,7 @@ def main():
             tx2 = client.write_contract(
                 address=contract_address,
                 function_name="audit_token",
-                args=[other_token, f"req_noauth_{stamp}_{attempt}", 1000, NO_AUTHORITY_TELEMETRY],
+                args=[other_token, f"req_noauth_{stamp}_{attempt}", 1000, NO_TELEMETRY],
             )
             log(f"    audit tx: {tx2}")
             break
