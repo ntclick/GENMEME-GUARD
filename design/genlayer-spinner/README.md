@@ -4,6 +4,8 @@ A loading spinner built directly from the GenLayer mark. Pure SVG + CSS, no
 JavaScript, no `<defs>`, no `id` attributes — safe to render dozens of times
 on one page.
 
+**[Live demo →](https://genmeme-guard.vercel.app/genlayer-spinner/_showcase-preview.html)**
+
 ## Source of truth
 
 Palette and usage rules are taken from **[genlayer.com/brand](https://genlayer.com/brand)**:
