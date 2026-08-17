@@ -1,0 +1,576 @@
+<title>Beacon Spinner</title>
+
+<style>
+/* ══════════════════════════════════════════════════════════════
+   PAGE TOKENS — sourced from genlayer.com/brand
+   ══════════════════════════════════════════════════════════════ */
+
+:root {
+  --carbon: #070707;   /* Carbon Void  */
+  --ceramic: #f5f5f5;  /* Ceramic Node */
+  --cobalt: #110fff;   /* Kinetic Cobalt */
+
+  --bg: #fbfbfb;
+  --surface: #ffffff;
+  --sunken: #f2f2f5;
+  --text: #0d0d10;
+  --muted: #58586a;
+  --faint: #8b8b9a;
+  --line: #e4e4ea;
+  --line-soft: #ececf1;
+  --accent: #110fff;
+
+  --mono: ui-monospace, "Cascadia Code", "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace;
+  --sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0a0a0d;
+    --surface: #131317;
+    --sunken: #0e0e12;
+    --text: #f0f0f4;
+    --muted: #9797a8;
+    --faint: #6c6c7e;
+    --line: #232329;
+    --line-soft: #1b1b20;
+    --accent: #5b58ff;
+  }
+}
+
+:root[data-theme="dark"] {
+  --bg: #0a0a0d;
+  --surface: #131317;
+  --sunken: #0e0e12;
+  --text: #f0f0f4;
+  --muted: #9797a8;
+  --faint: #6c6c7e;
+  --line: #232329;
+  --line-soft: #1b1b20;
+  --accent: #5b58ff;
+}
+
+/* ══════════════════════════════════════════════════════════════
+   THE COMPONENT — identical to design/genlayer-spinner/genlayer-spinner.css
+   ══════════════════════════════════════════════════════════════ */
+
+.gl-spinner {
+  --gl-mark: #070707;
+  --gl-arc: #110fff;
+  --gl-spin-size: 48px;
+  --gl-spin-cycle: 1.8s;
+  display: inline-block;
+  vertical-align: middle;
+  flex: none;
+  width: var(--gl-spin-size);
+  height: var(--gl-spin-size);
+}
+
+@media (prefers-color-scheme: dark) {
+  :where(:root:not([data-theme="light"])) .gl-spinner { --gl-mark: #f5f5f5; }
+}
+:where(:root[data-theme="dark"]) .gl-spinner { --gl-mark: #f5f5f5; }
+:where(:root[data-theme="light"]) .gl-spinner { --gl-mark: #070707; }
+.gl-spinner--on-dark { --gl-mark: #f5f5f5; }
+.gl-spinner--on-light { --gl-mark: #070707; }
+
+.gl-spinner__mark {
+  fill: var(--gl-mark);
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: gl-breathe var(--gl-spin-cycle) ease-in-out infinite;
+}
+
+.gl-spinner__arc {
+  fill: none;
+  stroke: var(--gl-arc);
+  stroke-width: 5;
+  stroke-linecap: round;
+  stroke-dasharray: 60 170;
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: gl-sweep var(--gl-spin-cycle) linear infinite;
+}
+
+@keyframes gl-sweep { to { transform: rotate(360deg); } }
+@keyframes gl-breathe {
+  0%, 100% { opacity: 1;    transform: scale(1); }
+  50%      { opacity: 0.82; transform: scale(0.95); }
+}
+
+.gl-spinner--compact .gl-spinner__arc { display: none; }
+.gl-spinner--compact .gl-spinner__mark { animation-name: gl-breathe-strong; }
+@keyframes gl-breathe-strong {
+  0%, 100% { opacity: 1;   transform: scale(1); }
+  50%      { opacity: 0.5; transform: scale(0.88); }
+}
+
+.gl-spinner--mono { --gl-mark: currentColor; --gl-arc: currentColor; }
+.gl-spinner--mono .gl-spinner__arc { opacity: 0.5; }
+
+@media (prefers-reduced-motion: reduce) {
+  .gl-spinner .gl-spinner__mark { animation: gl-fade 2.2s ease-in-out infinite; }
+  .gl-spinner .gl-spinner__arc { animation: none; stroke-dasharray: none; opacity: 0.5; }
+}
+@keyframes gl-fade { 0%, 100% { opacity: 1; } 50% { opacity: 0.55; } }
+
+/* ══════════════════════════════════════════════════════════════
+   PAGE
+   ══════════════════════════════════════════════════════════════ */
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font: 400 16px/1.65 var(--sans);
+  -webkit-font-smoothing: antialiased;
+}
+
+.wrap { max-width: 1080px; margin: 0 auto; padding: 0 28px; }
+.col { max-width: 64ch; margin: 0 auto; }
+section { padding: 0 0 76px; }
+
+h1, h2, h3 { text-wrap: balance; margin: 0; }
+h1 { font-size: clamp(42px, 7.4vw, 72px); font-weight: 650; letter-spacing: -0.04em; line-height: 0.99; }
+h2 { font-size: 15px; font-weight: 600; font-family: var(--mono); text-transform: uppercase; letter-spacing: 0.13em; color: var(--text); }
+h3 { font-size: 17px; font-weight: 600; letter-spacing: -0.012em; }
+p { margin: 0; }
+
+.eyebrow { font-family: var(--mono); font-size: 11.5px; text-transform: uppercase; letter-spacing: 0.19em; color: var(--faint); }
+.lede { font-size: 19px; color: var(--muted); letter-spacing: -0.006em; }
+
+.stack   { display: grid; gap: 16px; }
+.stack-l { display: grid; gap: 30px; }
+.stack-s { display: grid; gap: 9px; }
+
+.rule { height: 1px; background: var(--line); border: 0; margin: 0 0 26px; }
+
+code {
+  font-family: var(--mono);
+  font-size: 0.87em;
+  background: var(--sunken);
+  border: 1px solid var(--line-soft);
+  border-radius: 4px;
+  padding: 1px 5px;
+}
+
+a { color: var(--accent); }
+
+/* ── header ── */
+
+.masthead { padding: 88px 0 54px; }
+.masthead .lede { max-width: 48ch; }
+
+.byline {
+  display: flex; flex-wrap: wrap; gap: 8px 22px;
+  font-family: var(--mono); font-size: 11.5px; letter-spacing: 0.09em;
+  text-transform: uppercase; color: var(--faint); padding-top: 6px;
+}
+
+.source-note {
+  font-size: 13.5px;
+  color: var(--faint);
+  padding-top: 4px;
+}
+
+/* ── hero: mark, two grounds ── */
+
+.straddle {
+  display: grid; grid-template-columns: 1fr 1fr;
+  border: 1px solid var(--line); border-radius: 3px; overflow: hidden; position: relative;
+}
+.straddle__half { min-height: 300px; }
+.straddle__half--paper { background: var(--ceramic); }
+.straddle__half--ink   { background: var(--carbon); }
+.straddle__mark {
+  position: absolute; inset: 0; display: grid; grid-template-columns: 1fr 1fr;
+  pointer-events: none;
+}
+.straddle__mark > div { display: grid; place-items: center; }
+
+.straddle__legend {
+  display: flex; justify-content: space-between;
+  font-family: var(--mono); font-size: 11px; letter-spacing: 0.12em;
+  text-transform: uppercase; color: var(--faint); padding-top: 11px;
+}
+
+/* ── notes ── */
+
+.notes {
+  display: grid; gap: 1px; background: var(--line);
+  border: 1px solid var(--line); border-radius: 3px; overflow: hidden;
+}
+@media (min-width: 760px) { .notes { grid-template-columns: repeat(3, 1fr); } }
+.note { background: var(--surface); padding: 24px 22px 26px; display: grid; gap: 8px; align-content: start; }
+.note__key { font-family: var(--mono); font-size: 10.5px; letter-spacing: 0.16em; text-transform: uppercase; color: var(--accent); }
+.note p { font-size: 14.5px; color: var(--muted); line-height: 1.6; }
+
+/* ── brand quote ── */
+
+.quote {
+  border-left: 3px solid var(--accent);
+  padding: 4px 0 4px 20px;
+  font-size: 16px;
+  color: var(--muted);
+  font-style: italic;
+}
+.quote cite {
+  display: block;
+  margin-top: 8px;
+  font-style: normal;
+  font-family: var(--mono);
+  font-size: 11.5px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--faint);
+}
+
+/* ── size ramp ── */
+
+.ramp { display: grid; gap: 1px; background: var(--line); border: 1px solid var(--line); border-radius: 3px; overflow: hidden; }
+.ramp__row {
+  display: flex; align-items: flex-end; justify-content: center;
+  gap: clamp(18px, 4vw, 44px); padding: 34px 22px 22px; flex-wrap: wrap;
+}
+.ramp__row--paper { background: var(--ceramic); }
+.ramp__row--ink   { background: var(--carbon); }
+.spec { display: grid; justify-items: center; gap: 12px; }
+.spec__label { font-family: var(--mono); font-size: 10px; letter-spacing: 0.1em; font-variant-numeric: tabular-nums; }
+.ramp__row--paper .spec__label { color: #6b6b78; }
+.ramp__row--ink   .spec__label { color: #86869a; }
+
+/* ── in context ── */
+
+.context { display: grid; gap: 18px; }
+@media (min-width: 760px) { .context { grid-template-columns: 1.35fr 1fr; align-items: start; } }
+
+.panel { border: 1px solid var(--line); border-radius: 3px; background: var(--surface); overflow: hidden; }
+.panel__bar {
+  display: flex; align-items: center; gap: 9px; padding: 11px 15px;
+  border-bottom: 1px solid var(--line-soft); font-family: var(--mono); font-size: 11px;
+  letter-spacing: 0.1em; text-transform: uppercase; color: var(--faint);
+}
+.panel__body { display: grid; place-items: center; gap: 18px; padding: 48px 20px 52px; text-align: center; }
+.panel__body p { font-size: 14px; color: var(--muted); }
+.panel__stack { display: grid; gap: 18px; padding: 22px 20px; justify-items: start; }
+
+.btn-busy {
+  display: inline-flex; align-items: center; gap: 9px;
+  background: var(--accent); color: #fff; border: 0; border-radius: 3px;
+  padding: 10px 17px; font: 500 14px/1 var(--sans); cursor: default;
+}
+.btn-ghost {
+  display: inline-flex; align-items: center; gap: 9px; color: var(--muted);
+  font-size: 14px; cursor: default; background: none; border: 0; padding: 0;
+}
+.row-busy {
+  display: flex; align-items: center; gap: 10px;
+  font-family: var(--mono); font-size: 12.5px; color: var(--muted);
+}
+
+/* ── specs table ── */
+
+.tablewrap { overflow-x: auto; border: 1px solid var(--line); border-radius: 3px; }
+table { border-collapse: collapse; width: 100%; font-size: 14px; }
+th, td { text-align: left; padding: 11px 16px; border-bottom: 1px solid var(--line-soft); vertical-align: top; }
+thead th {
+  font-family: var(--mono); font-size: 10.5px; letter-spacing: 0.14em; text-transform: uppercase;
+  color: var(--faint); font-weight: 500; background: var(--sunken); border-bottom-color: var(--line);
+}
+tbody tr:last-child td { border-bottom: 0; }
+td:first-child { font-family: var(--mono); font-size: 12.5px; white-space: nowrap; }
+td:nth-child(2), td:nth-child(3) { color: var(--muted); }
+.swatch { display: inline-block; width: 11px; height: 11px; border-radius: 2px; vertical-align: -1px; margin-right: 7px; }
+
+/* ── code ── */
+
+pre {
+  margin: 0; background: var(--sunken); border: 1px solid var(--line); border-radius: 3px;
+  padding: 18px 20px; overflow-x: auto; font-family: var(--mono); font-size: 12.5px;
+  line-height: 1.7; color: var(--text); tab-size: 2;
+}
+pre code { background: none; border: 0; padding: 0; font-size: inherit; }
+
+.filelist { display: grid; gap: 1px; background: var(--line); border: 1px solid var(--line); border-radius: 3px; overflow: hidden; }
+.file { background: var(--surface); padding: 13px 16px; display: flex; gap: 16px; align-items: baseline; flex-wrap: wrap; }
+.file__name { font-family: var(--mono); font-size: 12.5px; min-width: 21ch; }
+.file__use { font-size: 13.5px; color: var(--muted); }
+
+footer {
+  border-top: 1px solid var(--line); padding: 30px 0 64px;
+  font-family: var(--mono); font-size: 11.5px; letter-spacing: 0.09em; text-transform: uppercase;
+  color: var(--faint); display: flex; justify-content: space-between; gap: 16px; flex-wrap: wrap;
+}
+</style>
+
+
+<div class="wrap">
+
+  <!-- ════════════════ MASTHEAD ════════════════ -->
+  <header class="masthead col stack">
+    <p class="eyebrow">GenLayer Portal &middot; community submission</p>
+    <h1>Beacon</h1>
+    <p class="lede">
+      A loading spinner built from the GenLayer mark itself &mdash; held fixed
+      and undistorted at the centre, exactly as the brand guidelines require.
+      A Kinetic Cobalt arc carries the motion around it.
+    </p>
+    <div class="byline">
+      <span>SVG + CSS</span>
+      <span>No JavaScript</span>
+      <span>1.8s loop</span>
+      <span>16&ndash;128px</span>
+    </div>
+    <p class="source-note">
+      Palette and usage rules sourced from
+      <a href="https://genlayer.com/brand" target="_blank" rel="noopener">genlayer.com/brand</a>.
+    </p>
+  </header>
+
+  <!-- ════════════════ HERO ════════════════ -->
+  <section>
+    <div class="straddle">
+      <div class="straddle__half straddle__half--paper"></div>
+      <div class="straddle__half straddle__half--ink"></div>
+      <div class="straddle__mark">
+        <div>
+          <svg class="gl-spinner gl-spinner--on-light" style="--gl-spin-size: 112px" viewBox="0 0 100 100" role="status" aria-label="Loading">
+            <title>Loading</title>
+            <circle class="gl-spinner__arc" cx="50" cy="50" r="46" />
+            <path class="gl-spinner__mark" d="M46.3,27.3 L24,70.7 L47.5,62 L44.4,44.7 Z M53.7,27.3 L76,70.7 L52.5,62 L55.6,44.7 Z M50,54.6 L46.9,63.3 L53.1,63.3 Z" />
+          </svg>
+        </div>
+        <div>
+          <svg class="gl-spinner gl-spinner--on-dark" style="--gl-spin-size: 112px" viewBox="0 0 100 100" role="status" aria-label="Loading">
+            <title>Loading</title>
+            <circle class="gl-spinner__arc" cx="50" cy="50" r="46" />
+            <path class="gl-spinner__mark" d="M46.3,27.3 L24,70.7 L47.5,62 L44.4,44.7 Z M53.7,27.3 L76,70.7 L52.5,62 L55.6,44.7 Z M50,54.6 L46.9,63.3 L53.1,63.3 Z" />
+          </svg>
+        </div>
+      </div>
+    </div>
+    <p class="straddle__legend">
+      <span>Ceramic Node #F5F5F5</span>
+      <span>the mark, unaltered on both grounds</span>
+      <span>Carbon Void #070707</span>
+    </p>
+  </section>
+
+  <!-- ════════════════ THE IDEA ════════════════ -->
+  <section class="col stack-l">
+    <div class="stack-s">
+      <hr class="rule">
+      <h2>The idea</h2>
+    </div>
+
+    <p class="quote">
+      "The GenLayer mark is a static system variable. To maintain absolute
+      legibility and visual authority against the UI, it must remain
+      uncompromised and isolated from other data streams."
+      <cite>GenLayer brand guidelines &middot; genlayer.com/brand</cite>
+    </p>
+
+    <p>
+      Most brand marks get bent, split, or spun into a loading animation
+      because it's the easiest way to add motion. GenLayer's own guidelines
+      rule that out directly &mdash; so this spinner takes the opposite
+      approach: the mark never moves at all.
+    </p>
+
+    <div class="notes">
+      <div class="note">
+        <span class="note__key">The mark</span>
+        <p>
+          Fixed at the centre, always upright, fill and proportions exactly
+          as published. It is never rotated, scaled unevenly, or split into
+          pieces &mdash; nothing about its geometry changes, ever.
+        </p>
+      </div>
+      <div class="note">
+        <span class="note__key">The arc</span>
+        <p>
+          A single Kinetic Cobalt stroke orbits around the mark at a fixed
+          distance, sized to leave clear space on every side. It is the only
+          part of the design that moves.
+        </p>
+      </div>
+      <div class="note">
+        <span class="note__key">The pulse</span>
+        <p>
+          A faint breathing scale on the mark, timed to the arc's
+          revolution, keeps the whole mark feeling alive without ever
+          distorting its shape.
+        </p>
+      </div>
+    </div>
+
+    <p>
+      This also matches how GenLayer already uses Kinetic Cobalt elsewhere:
+      never as the mark's own linework, only as a fill or accent &mdash; the
+      app icon is the mark in white on a Cobalt chip, not a blue mark. The
+      spinner borrows that exact logic instead of inventing a new one.
+    </p>
+  </section>
+
+  <!-- ════════════════ SIZES ════════════════ -->
+  <section class="stack-l">
+    <div class="col stack-s">
+      <hr class="rule">
+      <h2>Small sizes</h2>
+      <p style="color: var(--muted); font-size: 15px;">
+        The arc's 5-unit stroke reads as a smudge below about 28px, so the
+        compact variant drops it and lets the mark's own bold, solid-filled
+        geometry carry the small sizes on its own.
+      </p>
+    </div>
+
+    <div class="ramp">
+      <div class="ramp__row ramp__row--paper">
+        <div class="spec"><svg class="gl-spinner gl-spinner--compact gl-spinner--on-light" style="--gl-spin-size:16px" viewBox="0 0 100 100" aria-hidden="true"><path class="gl-spinner__mark" d="M46.3,27.3 L24,70.7 L47.5,62 L44.4,44.7 Z M53.7,27.3 L76,70.7 L52.5,62 L55.6,44.7 Z M50,54.6 L46.9,63.3 L53.1,63.3 Z"/></svg><span class="spec__label">16</span></div>
+        <div class="spec"><svg class="gl-spinner gl-spinner--compact gl-spinner--on-light" style="--gl-spin-size:20px" viewBox="0 0 100 100" aria-hidden="true"><path class="gl-spinner__mark" d="M46.3,27.3 L24,70.7 L47.5,62 L44.4,44.7 Z M53.7,27.3 L76,70.7 L52.5,62 L55.6,44.7 Z M50,54.6 L46.9,63.3 L53.1,63.3 Z"/></svg><span class="spec__label">20</span></div>
+        <div class="spec"><svg class="gl-spinner gl-spinner--compact gl-spinner--on-light" style="--gl-spin-size:24px" viewBox="0 0 100 100" aria-hidden="true"><path class="gl-spinner__mark" d="M46.3,27.3 L24,70.7 L47.5,62 L44.4,44.7 Z M53.7,27.3 L76,70.7 L52.5,62 L55.6,44.7 Z M50,54.6 L46.9,63.3 L53.1,63.3 Z"/></svg><span class="spec__label">24</span></div>
+        <div class="spec"><svg class="gl-spinner gl-spinner--on-light" style="--gl-spin-size:32px" viewBox="0 0 100 100" aria-hidden="true"><circle class="gl-spinner__arc" cx="50" cy="50" r="46"/><path class="gl-spinner__mark" d="M46.3,27.3 L24,70.7 L47.5,62 L44.4,44.7 Z M53.7,27.3 L76,70.7 L52.5,62 L55.6,44.7 Z M50,54.6 L46.9,63.3 L53.1,63.3 Z"/></svg><span class="spec__label">32</span></div>
+        <div class="spec"><svg class="gl-spinner gl-spinner--on-light" style="--gl-spin-size:48px" viewBox="0 0 100 100" aria-hidden="true"><circle class="gl-spinner__arc" cx="50" cy="50" r="46"/><path class="gl-spinner__mark" d="M46.3,27.3 L24,70.7 L47.5,62 L44.4,44.7 Z M53.7,27.3 L76,70.7 L52.5,62 L55.6,44.7 Z M50,54.6 L46.9,63.3 L53.1,63.3 Z"/></svg><span class="spec__label">48</span></div>
+        <div class="spec"><svg class="gl-spinner gl-spinner--on-light" style="--gl-spin-size:72px" viewBox="0 0 100 100" aria-hidden="true"><circle class="gl-spinner__arc" cx="50" cy="50" r="46"/><path class="gl-spinner__mark" d="M46.3,27.3 L24,70.7 L47.5,62 L44.4,44.7 Z M53.7,27.3 L76,70.7 L52.5,62 L55.6,44.7 Z M50,54.6 L46.9,63.3 L53.1,63.3 Z"/></svg><span class="spec__label">72</span></div>
+      </div>
+
+      <div class="ramp__row ramp__row--ink">
+        <div class="spec"><svg class="gl-spinner gl-spinner--compact gl-spinner--on-dark" style="--gl-spin-size:16px" viewBox="0 0 100 100" aria-hidden="true"><path class="gl-spinner__mark" d="M46.3,27.3 L24,70.7 L47.5,62 L44.4,44.7 Z M53.7,27.3 L76,70.7 L52.5,62 L55.6,44.7 Z M50,54.6 L46.9,63.3 L53.1,63.3 Z"/></svg><span class="spec__label">16</span></div>
+        <div class="spec"><svg class="gl-spinner gl-spinner--compact gl-spinner--on-dark" style="--gl-spin-size:20px" viewBox="0 0 100 100" aria-hidden="true"><path class="gl-spinner__mark" d="M46.3,27.3 L24,70.7 L47.5,62 L44.4,44.7 Z M53.7,27.3 L76,70.7 L52.5,62 L55.6,44.7 Z M50,54.6 L46.9,63.3 L53.1,63.3 Z"/></svg><span class="spec__label">20</span></div>
+        <div class="spec"><svg class="gl-spinner gl-spinner--compact gl-spinner--on-dark" style="--gl-spin-size:24px" viewBox="0 0 100 100" aria-hidden="true"><path class="gl-spinner__mark" d="M46.3,27.3 L24,70.7 L47.5,62 L44.4,44.7 Z M53.7,27.3 L76,70.7 L52.5,62 L55.6,44.7 Z M50,54.6 L46.9,63.3 L53.1,63.3 Z"/></svg><span class="spec__label">24</span></div>
+        <div class="spec"><svg class="gl-spinner gl-spinner--on-dark" style="--gl-spin-size:32px" viewBox="0 0 100 100" aria-hidden="true"><circle class="gl-spinner__arc" cx="50" cy="50" r="46"/><path class="gl-spinner__mark" d="M46.3,27.3 L24,70.7 L47.5,62 L44.4,44.7 Z M53.7,27.3 L76,70.7 L52.5,62 L55.6,44.7 Z M50,54.6 L46.9,63.3 L53.1,63.3 Z"/></svg><span class="spec__label">32</span></div>
+        <div class="spec"><svg class="gl-spinner gl-spinner--on-dark" style="--gl-spin-size:48px" viewBox="0 0 100 100" aria-hidden="true"><circle class="gl-spinner__arc" cx="50" cy="50" r="46"/><path class="gl-spinner__mark" d="M46.3,27.3 L24,70.7 L47.5,62 L44.4,44.7 Z M53.7,27.3 L76,70.7 L52.5,62 L55.6,44.7 Z M50,54.6 L46.9,63.3 L53.1,63.3 Z"/></svg><span class="spec__label">48</span></div>
+        <div class="spec"><svg class="gl-spinner gl-spinner--on-dark" style="--gl-spin-size:72px" viewBox="0 0 100 100" aria-hidden="true"><circle class="gl-spinner__arc" cx="50" cy="50" r="46"/><path class="gl-spinner__mark" d="M46.3,27.3 L24,70.7 L47.5,62 L44.4,44.7 Z M53.7,27.3 L76,70.7 L52.5,62 L55.6,44.7 Z M50,54.6 L46.9,63.3 L53.1,63.3 Z"/></svg><span class="spec__label">72</span></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ════════════════ IN CONTEXT ════════════════ -->
+  <section class="stack-l">
+    <div class="col stack-s">
+      <hr class="rule">
+      <h2>In place</h2>
+    </div>
+
+    <div class="context">
+      <div class="panel">
+        <div class="panel__bar">Contract activity</div>
+        <div class="panel__body">
+          <svg class="gl-spinner" style="--gl-spin-size: 48px" viewBox="0 0 100 100" role="status" aria-label="Loading contract activity">
+            <title>Loading contract activity</title>
+            <circle class="gl-spinner__arc" cx="50" cy="50" r="46"/>
+            <path class="gl-spinner__mark" d="M46.3,27.3 L24,70.7 L47.5,62 L44.4,44.7 Z M53.7,27.3 L76,70.7 L52.5,62 L55.6,44.7 Z M50,54.6 L46.9,63.3 L53.1,63.3 Z"/>
+          </svg>
+          <p>Reading the latest round</p>
+        </div>
+      </div>
+
+      <div class="panel panel__stack">
+        <button class="btn-busy" type="button" disabled>
+          <svg class="gl-spinner gl-spinner--compact gl-spinner--mono" style="--gl-spin-size:15px" viewBox="0 0 100 100" aria-hidden="true">
+            <path class="gl-spinner__mark" d="M46.3,27.3 L24,70.7 L47.5,62 L44.4,44.7 Z M53.7,27.3 L76,70.7 L52.5,62 L55.6,44.7 Z M50,54.6 L46.9,63.3 L53.1,63.3 Z"/>
+          </svg>
+          Submitting
+        </button>
+
+        <span class="btn-ghost">
+          <svg class="gl-spinner gl-spinner--compact gl-spinner--mono" style="--gl-spin-size:15px" viewBox="0 0 100 100" aria-hidden="true">
+            <path class="gl-spinner__mark" d="M46.3,27.3 L24,70.7 L47.5,62 L44.4,44.7 Z M53.7,27.3 L76,70.7 L52.5,62 L55.6,44.7 Z M50,54.6 L46.9,63.3 L53.1,63.3 Z"/>
+          </svg>
+          Estimating gas
+        </span>
+
+        <span class="row-busy">
+          <svg class="gl-spinner gl-spinner--compact" style="--gl-spin-size:14px" viewBox="0 0 100 100" aria-hidden="true">
+            <path class="gl-spinner__mark" d="M46.3,27.3 L24,70.7 L47.5,62 L44.4,44.7 Z M53.7,27.3 L76,70.7 L52.5,62 L55.6,44.7 Z M50,54.6 L46.9,63.3 L53.1,63.3 Z"/>
+          </svg>
+          0x7f3a&hellip;c210
+        </span>
+      </div>
+    </div>
+  </section>
+
+  <!-- ════════════════ SPEC ════════════════ -->
+  <section class="col stack-l">
+    <div class="stack-s">
+      <hr class="rule">
+      <h2>Spec</h2>
+    </div>
+
+    <div class="tablewrap">
+      <table>
+        <thead>
+          <tr><th>Element</th><th>Color</th><th>Motion</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><span class="swatch" style="background:#070707;border:1px solid #ccc"></span>Mark, light ground</td>
+            <td>Carbon Void #070707</td>
+            <td>Fixed position &middot; breathing scale 1&ndash;0.95</td>
+          </tr>
+          <tr>
+            <td><span class="swatch" style="background:#f5f5f5;border:1px solid #ccc"></span>Mark, dark ground</td>
+            <td>Ceramic Node #F5F5F5</td>
+            <td>Same, opposite fill</td>
+          </tr>
+          <tr>
+            <td><span class="swatch" style="background:#110fff"></span>Orbiting arc</td>
+            <td>Kinetic Cobalt #110FFF</td>
+            <td>360&deg; sweep, 1.8s linear, ~26% of ring visible</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <p>
+      The arc's radius (46 units in a 100-unit viewBox) is set so its full
+      sweep clears the mark's bounding box on every side &mdash; the two
+      never overlap at any rotation. No <code>&lt;defs&gt;</code> or
+      <code>id</code> attributes anywhere, so the markup repeats freely on
+      one page.
+    </p>
+
+    <p>
+      Under <code>prefers-reduced-motion: reduce</code>, the arc's rotation
+      stops entirely and it becomes a static ring at reduced opacity; the
+      mark drops to an opacity-only fade &mdash; no scale, no movement of any
+      kind on the mark itself. <code>role="status"</code> and a
+      <code>&lt;title&gt;</code> announce the loading state.
+    </p>
+  </section>
+
+  <!-- ════════════════ USE ════════════════ -->
+  <section class="col stack-l">
+    <div class="stack-s">
+      <hr class="rule">
+      <h2>Use</h2>
+    </div>
+
+    <div class="filelist">
+      <div class="file"><span class="file__name">genlayer-spinner.css</span><span class="file__use">The component. Drop into the Portal stylesheet.</span></div>
+      <div class="file"><span class="file__name">genlayer-spinner.html</span><span class="file__use">Markup to copy, plus a light/dark demo bed.</span></div>
+      <div class="file"><span class="file__name">GenLayerSpinner.jsx</span><span class="file__use">React component with size / variant / mono / ground / label.</span></div>
+      <div class="file"><span class="file__name">genlayer-spinner.svg</span><span class="file__use">Self-contained file for <code>&lt;img&gt;</code>, backgrounds and docs.</span></div>
+    </div>
+
+<pre><code>&lt;GenLayerSpinner /&gt;                                  {/* 48px, page loads   */}
+&lt;GenLayerSpinner size={96} /&gt;                        {/* route transitions  */}
+&lt;GenLayerSpinner size={16} variant="compact" mono /&gt; {/* inside a button    */}
+&lt;GenLayerSpinner size={64} ground="dark" /&gt;          {/* dark modal, light page */}</code></pre>
+
+    <p>
+      If GenLayer's brand kit has an official vector source for the mark, the
+      <code>d</code> attribute on <code>.gl-spinner__mark</code> is the only
+      thing that needs swapping &mdash; this build reconstructed the path by
+      eye from the published mark images, straight edges only, matching the
+      mark's own construction. Everything else (the arc, the pulse, the
+      theming) is independent of that path.
+    </p>
+  </section>
+
+  <footer>
+    <span>Beacon &middot; GenLayer Portal spinner</span>
+    <span>SVG + CSS &middot; no dependencies</span>
+  </footer>
+
+</div>
