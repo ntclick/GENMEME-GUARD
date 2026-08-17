@@ -1,0 +1,143 @@
+/* ============================================================
+   GenLayer Portal — "Beacon" spinner
+   Pure SVG + CSS. No JS, no <defs>, no ids (safe to repeat on a page).
+   ------------------------------------------------------------
+   The GenLayer mark sits fixed at the centre, always upright,
+   fill and proportions untouched — GenLayer's own brand rule
+   ("a static system variable... must remain uncompromised") is
+   read literally: the mark itself never rotates, stretches, or
+   splits apart. All the loading motion lives in a Kinetic Cobalt
+   arc that sweeps around it, plus a faint breathing pulse on the
+   mark timed to the same revolution.
+
+   Palette sourced from genlayer.com/brand:
+     Kinetic Cobalt #110FFF · Carbon Void #070707 · Ceramic Node #F5F5F5
+   ============================================================ */
+
+/* ---------- tokens ---------- */
+
+.gl-spinner {
+  --gl-mark: #070707;      /* Carbon Void — the mark, light ground */
+  --gl-arc: #110fff;       /* Kinetic Cobalt — the only moving color */
+
+  --gl-spin-size: 48px;
+  --gl-spin-cycle: 1.8s; /* one full sweep of the arc */
+
+  display: inline-block;
+  vertical-align: middle;
+  flex: none;
+  width: var(--gl-spin-size);
+  height: var(--gl-spin-size);
+}
+
+/* Theme resolution. Every rule sits at the same specificity via :where(),
+   so source order decides — the explicit --on-dark / --on-light modifiers
+   are written last and win over the media query. */
+
+@media (prefers-color-scheme: dark) {
+  :where(:root:not([data-theme="light"])) .gl-spinner {
+    --gl-mark: #f5f5f5; /* Ceramic Node — the mark, dark ground */
+  }
+}
+
+:where(:root[data-theme="dark"]) .gl-spinner {
+  --gl-mark: #f5f5f5;
+}
+
+:where(:root[data-theme="light"]) .gl-spinner {
+  --gl-mark: #070707;
+}
+
+/* For a surface that is inverted against the page theme —
+   a dark modal in a light Portal, a light card in a dark one. */
+.gl-spinner--on-dark {
+  --gl-mark: #f5f5f5;
+}
+
+.gl-spinner--on-light {
+  --gl-mark: #070707;
+}
+
+/* ---------- parts ---------- */
+
+.gl-spinner__mark {
+  fill: var(--gl-mark);
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: gl-breathe var(--gl-spin-cycle) ease-in-out infinite;
+}
+
+.gl-spinner__arc {
+  fill: none;
+  stroke: var(--gl-arc);
+  stroke-width: 5;
+  stroke-linecap: round;
+  /* ~26% of the ring visible, rest transparent */
+  stroke-dasharray: 60 170;
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: gl-sweep var(--gl-spin-cycle) linear infinite;
+}
+
+/* ---------- motion ---------- */
+
+@keyframes gl-sweep {
+  to { transform: rotate(360deg); }
+}
+
+@keyframes gl-breathe {
+  0%, 100% { opacity: 1;    transform: scale(1); }
+  50%      { opacity: 0.82; transform: scale(0.95); }
+}
+
+/* ---------- variants ---------- */
+
+/* Compact — for 16–24px: the arc's stroke reads as a smudge at that
+   size, so drop it and let the mark itself carry a slightly stronger
+   pulse — the mark is bold enough on its own at small sizes. */
+.gl-spinner--compact .gl-spinner__arc {
+  display: none;
+}
+
+.gl-spinner--compact .gl-spinner__mark {
+  animation-name: gl-breathe-strong;
+}
+
+@keyframes gl-breathe-strong {
+  0%, 100% { opacity: 1;   transform: scale(1); }
+  50%      { opacity: 0.5; transform: scale(0.88); }
+}
+
+/* Mono — inherits text color throughout, mark and arc alike. For
+   tinted buttons, dense tables, or any surface whose ground isn't
+   known ahead of time — currentColor always resolves correctly,
+   without needing an --on-dark / --on-light hint. */
+.gl-spinner--mono {
+  --gl-mark: currentColor;
+  --gl-arc: currentColor;
+}
+
+.gl-spinner--mono .gl-spinner__arc {
+  opacity: 0.5;
+}
+
+/* ---------- reduced motion ---------- */
+
+@media (prefers-reduced-motion: reduce) {
+  /* No scale, no rotation — an opacity-only fade is the one motion
+     considered safe to leave running. The mark never moves at all. */
+  .gl-spinner .gl-spinner__mark {
+    animation: gl-fade 2.2s ease-in-out infinite;
+  }
+
+  .gl-spinner .gl-spinner__arc {
+    animation: none;
+    stroke-dasharray: none;
+    opacity: 0.5;
+  }
+}
+
+@keyframes gl-fade {
+  0%, 100% { opacity: 1; }
+  50%      { opacity: 0.55; }
+}

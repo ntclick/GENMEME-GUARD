@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>GenLayer Spinner</title>
+<link rel="stylesheet" href="genlayer-spinner.css">
+<style>
+  body {
+    margin: 0;
+    min-height: 100vh;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    place-items: center;
+    font: 400 14px/1.5 system-ui, sans-serif;
+  }
+  .bed { display: grid; gap: 32px; justify-items: center; padding: 64px; align-self: stretch; align-content: center; }
+  .bed--light { background: #f5f5f5; color: #070707; }
+  .bed--dark  { background: #070707; color: #f5f5f5; }
+  .row { display: flex; align-items: center; gap: 20px; }
+</style>
+</head>
+<body>
+
+<!-- ============================================================
+     THE MARKUP — this is the whole component.
+     Copy the <svg> block; everything else on this page is demo.
+     The "d" path is the GenLayer mark itself — do not edit it.
+     ============================================================ -->
+
+<div class="bed bed--light">
+  <svg class="gl-spinner gl-spinner--on-light" style="--gl-spin-size: 112px" viewBox="0 0 100 100" role="status" aria-label="Loading">
+    <title>Loading</title>
+    <circle class="gl-spinner__arc" cx="50" cy="50" r="46" />
+    <path class="gl-spinner__mark" d="M46.3,27.3 L24,70.7 L47.5,62 L44.4,44.7 Z M53.7,27.3 L76,70.7 L52.5,62 L55.6,44.7 Z M50,54.6 L46.9,63.3 L53.1,63.3 Z" />
+  </svg>
+
+  <div class="row">
+    <!-- Compact, sized inline with text -->
+    <svg class="gl-spinner gl-spinner--compact gl-spinner--on-light" style="--gl-spin-size: 16px" viewBox="0 0 100 100" aria-hidden="true">
+      <path class="gl-spinner__mark" d="M46.3,27.3 L24,70.7 L47.5,62 L44.4,44.7 Z M53.7,27.3 L76,70.7 L52.5,62 L55.6,44.7 Z M50,54.6 L46.9,63.3 L53.1,63.3 Z" />
+    </svg>
+    <span>Waiting for consensus…</span>
+  </div>
+</div>
+
+<div class="bed bed--dark">
+  <svg class="gl-spinner gl-spinner--on-dark" style="--gl-spin-size: 112px" viewBox="0 0 100 100" role="status" aria-label="Loading">
+    <title>Loading</title>
+    <circle class="gl-spinner__arc" cx="50" cy="50" r="46" />
+    <path class="gl-spinner__mark" d="M46.3,27.3 L24,70.7 L47.5,62 L44.4,44.7 Z M53.7,27.3 L76,70.7 L52.5,62 L55.6,44.7 Z M50,54.6 L46.9,63.3 L53.1,63.3 Z" />
+  </svg>
+
+  <div class="row">
+    <svg class="gl-spinner gl-spinner--compact gl-spinner--mono" style="--gl-spin-size: 16px" viewBox="0 0 100 100" aria-hidden="true">
+      <path class="gl-spinner__mark" d="M46.3,27.3 L24,70.7 L47.5,62 L44.4,44.7 Z M53.7,27.3 L76,70.7 L52.5,62 L55.6,44.7 Z M50,54.6 L46.9,63.3 L53.1,63.3 Z" />
+    </svg>
+    <span>Waiting for consensus…</span>
+  </div>
+</div>
+
+</body>
+</html>
